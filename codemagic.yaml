@@ -1,0 +1,62 @@
+workflows:
+  simax:
+    name: SIMAX React Native Android
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    triggering:
+      events:
+        - push
+        - tag
+        - pull_request
+      branch_patterns:
+        - pattern: simax-stable
+          include: true
+          source: true
+        - pattern: test-clean-version
+          include: true
+          source: true
+        - pattern: main
+          include: true
+          source: true
+    environment:
+      groups:
+        - expo
+      vars:
+        PACKAGE_NAME: "com.wadrari.mobile"
+        GOOGLE_PLAY_TRACK: internal
+      node: 20.19.4
+      npm: 10.2.3
+      
+    scripts:
+      - name: Install npm dependencies
+        script: |
+          npm install
+          
+      - name: Set up Expo and prebuild
+        script: |
+          npm install -g @expo/cli@latest
+          npx expo install --fix
+          npx expo prebuild --platform android --clear
+          
+      - name: Set up local.properties
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/android/local.properties"
+          
+      - name: Build Android Release
+        script: |
+          cd android
+          ./gradlew clean
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/mapping.txt
+      - android/app/build/outputs/apk/**/*.aab
+      
+    publishing:
+      email:
+        recipients:
+          - ilyasouhnine@gmail.com
+        notify:
+          success: true
+          failure: true
