@@ -400,14 +400,23 @@ class SupabaseMCPClient {
         return { success: false, error: error.message };
       }
 
-      // Reward: +2 trophies, +5 XP
-      await this.supabase
-        .from('users')
-        .update({
-          trophies: (this.supabase.rpc ? undefined : undefined), // placeholder when no server-side calc
-        })
-        .eq('id', userId);
-      // Simpler: increment with single update expressions if available is unknown; skip if policies restrict
+      // Reward: +2 trophies, +5 XP (best-effort; ignores failures)
+      try {
+        await this.supabase.rpc('increment_user_stats', { p_user_id: userId, p_trophies: 2, p_xp: 5 });
+      } catch (_) {
+        // Fallback: direct update if RPC not present
+        try {
+          const { data: current } = await this.supabase
+            .from('users')
+            .select('trophies, xp')
+            .eq('id', userId)
+            .single();
+          await this.supabase
+            .from('users')
+            .update({ trophies: (current?.trophies ?? 0) + 2, xp: (current?.xp ?? 0) + 5 })
+            .eq('id', userId);
+        } catch {}
+      }
 
       return { success: true, data: this._normalizeMessage(data) };
     } catch (error) {
@@ -476,6 +485,44 @@ class SupabaseMCPClient {
       return { success: true, data: quests };
     } catch (error) {
       console.error('Quests fetch exception:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async getUserQuests({ userId }) {
+    try {
+      // Compute today's message count
+      const today = new Date();
+      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+      const { count: msgCount } = await this.supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('sender_id', userId)
+        .gte('created_at', startOfDay);
+
+      // Basic daily quests definition (can be extended)
+      const quests = [
+        {
+          id: 'daily_msg_1',
+          title: 'Say Hello',
+          description: 'Send 1 message today',
+          target: 1,
+          reward: 10,
+          progress: msgCount ?? 0
+        },
+        {
+          id: 'daily_msg_5',
+          title: 'Keep Talking',
+          description: 'Send 5 messages today',
+          target: 5,
+          reward: 25,
+          progress: msgCount ?? 0
+        }
+      ];
+
+      return { success: true, data: quests };
+    } catch (error) {
+      console.error('getUserQuests exception:', error);
       return { success: false, error: error.message };
     }
   }
