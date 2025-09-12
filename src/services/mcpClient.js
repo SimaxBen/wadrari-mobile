@@ -1,6 +1,7 @@
 // Enhanced MCP Client for React Native with better error handling
 import { createClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 
 // Get environment variables with fallbacks
@@ -31,12 +32,25 @@ if (!supabaseUrl || !supabaseKey) {
   console.error('❌ ' + msg);
 }
 
-// Initialize Supabase client with React Native specific options
+// Storage adapter for Supabase using SecureStore
+const ExpoSecureStorageAdapter = {
+  getItem: async (key) => {
+    try { return await SecureStore.getItemAsync(key); } catch { return null; }
+  },
+  setItem: async (key, value) => {
+    try { await SecureStore.setItemAsync(key, value); } catch {}
+  },
+  removeItem: async (key) => {
+    try { await SecureStore.deleteItemAsync(key); } catch {}
+  }
+};
+
+// Initialize Supabase client with persistent session in RN
 const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
-    storage: null, // We'll handle storage manually with SecureStore
+    storage: ExpoSecureStorageAdapter,
     autoRefreshToken: true,
-    persistSession: false, // We'll handle this manually
+    persistSession: true,
     detectSessionInUrl: false
   }
 });
@@ -49,6 +63,7 @@ class SupabaseMCPClient {
     this.maxRetries = 3;
   this._realtimeChannel = null;
   this._defaultChatCache = null;
+  this._userCache = new Map();
     console.log('🔧 Initializing MCP Client for React Native...');
   }
 
@@ -167,6 +182,21 @@ class SupabaseMCPClient {
     };
   }
 
+  async _getUserById(userId) {
+    if (!userId) return null;
+    if (this._userCache.has(userId)) return this._userCache.get(userId);
+    const { data, error } = await this.supabase
+      .from('users')
+      .select('id, username, avatar_url')
+      .eq('id', userId)
+      .single();
+    if (!error && data) {
+      this._userCache.set(userId, data);
+      return data;
+    }
+    return null;
+  }
+
   // Ensure a default chat exists and return its id
   async _ensureDefaultChat() {
     if (this._defaultChatCache) return this._defaultChatCache;
@@ -211,6 +241,8 @@ class SupabaseMCPClient {
           username: userRow.username || (email || '').split('@')[0],
           ...userRow
         };
+        // No supabase session in plain query; still persist app user for auto-login UX
+        try { await SecureStore.setItemAsync('user', JSON.stringify(userData)); } catch {}
         return { success: true, data: userData };
       }
 
@@ -239,6 +271,7 @@ class SupabaseMCPClient {
           username: profile?.username || email.split('@')[0],
           ...profile
         };
+        try { await SecureStore.setItemAsync('user', JSON.stringify(userData)); } catch {}
 
         return { success: true, data: userData };
       }
@@ -263,7 +296,7 @@ class SupabaseMCPClient {
         return { success: false, error: error.message };
       }
 
-      if (data.user) {
+  if (data.user) {
         // Insert/Update user profile WITH plain-text password for compatibility
         const { error: profileError } = await this.supabase
           .from('users')
@@ -286,6 +319,7 @@ class SupabaseMCPClient {
           email: data.user.email,
           username
         };
+  try { await SecureStore.setItemAsync('user', JSON.stringify(userData)); } catch {}
 
         return { success: true, data: userData };
       }
@@ -388,9 +422,19 @@ class SupabaseMCPClient {
       if (this._realtimeChannel) return this._realtimeChannel;
       const channel = this.supabase
         .channel('public:messages')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
           const row = payload.new;
-          const normalized = this._normalizeMessage({ ...row, users: payload?.new?.users });
+          let normalized = this._normalizeMessage(row);
+          if (!normalized?.profiles?.username) {
+            const user = await this._getUserById(row.sender_id);
+            if (user) {
+              normalized = {
+                ...normalized,
+                username: user.username,
+                profiles: { username: user.username, avatar_url: user.avatar_url }
+              };
+            }
+          }
           callback?.({ new: normalized });
         })
         .subscribe();

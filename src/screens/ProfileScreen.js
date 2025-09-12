@@ -9,6 +9,7 @@ import {
   Switch
 } from 'react-native';
 import { useMCPAuth } from '../context/MCPAuthContext';
+import Constants from 'expo-constants';
 import { useTheme } from '../context/ThemeContext';
 
 const ProfileScreen = () => {
@@ -125,6 +126,11 @@ const ProfileScreen = () => {
           <View style={styles.infoRow}>
             <Text style={styles.label}>Email:</Text>
             <Text style={styles.value}>{user?.email || 'N/A'}</Text>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>App Version:</Text>
+            <Text style={styles.value}>{Constants.expoConfig?.version || '1.0.1'}</Text>
           </View>
           
           <View style={styles.statsContainer}>
