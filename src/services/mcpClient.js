@@ -16,8 +16,8 @@ const getEnvVar = (key, fallback) => {
   return value;
 };
 
-const supabaseUrl = getEnvVar('SUPABASE_URL', 'https://ozggjrcnkwbodknyrpep.supabase.co');
-const supabaseKey = getEnvVar('SUPABASE_ANON_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96Z2dqcmNua3dib2RrbnlycGVwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY3MzQ5NzQsImV4cCI6MjA3MjMxMDk3NH0.A7qLacSIJeCLFrC6wge6KXgn0QguO50W2yusE9uAXZ0');
+const supabaseUrl = getEnvVar('SUPABASE_URL', process.env.EXPO_PUBLIC_SUPABASE_URL);
+const supabaseKey = getEnvVar('SUPABASE_ANON_KEY', process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY);
 
 console.log('=== Supabase Configuration ===');
 console.log('Platform:', Platform.OS);
@@ -26,11 +26,9 @@ console.log('Key present:', !!supabaseKey);
 console.log('Key preview:', supabaseKey ? `${supabaseKey.substring(0, 20)}...` : 'undefined');
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('❌ Missing Supabase configuration!');
-  console.error('URL:', supabaseUrl);
-  console.error('Key:', supabaseKey ? 'Present' : 'Missing');
-} else {
-  console.log('✅ Supabase configuration loaded successfully');
+  const msg = `Missing Supabase configuration. URL present: ${!!supabaseUrl}, Key present: ${!!supabaseKey}.\n` +
+    'Ensure EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY are set in your CI Environment Group (expo) and app.json extra if needed.';
+  console.error('❌ ' + msg);
 }
 
 // Initialize Supabase client with React Native specific options
