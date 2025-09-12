@@ -1,0 +1,157 @@
+[
+  {
+    "schemaname": "auth",
+    "tablename": "sso_domains",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "saml_providers",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "sso_providers",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "instances",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "cron",
+    "tablename": "job_run_details",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "cron",
+    "tablename": "job",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "schema_migrations",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "mfa_factors",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "refresh_tokens",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "storage",
+    "tablename": "prefixes",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "users",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "audit_log_entries",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "saml_relay_states",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "sessions",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "mfa_amr_claims",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "flow_state",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "identities",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "one_time_tokens",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "auth",
+    "tablename": "mfa_challenges",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "storage",
+    "tablename": "migrations",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "storage",
+    "tablename": "buckets_analytics",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "storage",
+    "tablename": "buckets",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "storage",
+    "tablename": "s3_multipart_uploads_parts",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "storage",
+    "tablename": "s3_multipart_uploads",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "storage",
+    "tablename": "objects",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "realtime",
+    "tablename": "messages",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "public",
+    "tablename": "chat_participants",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "public",
+    "tablename": "messages",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "public",
+    "tablename": "story_views",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "public",
+    "tablename": "user_badges",
+    "rowsecurity": true
+  },
+  {
+    "schemaname": "public",
+    "tablename": "daily_activities",
+    "rowsecurity": true
+  }
+]

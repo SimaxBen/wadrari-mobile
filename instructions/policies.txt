@@ -1,0 +1,392 @@
+[
+  {
+    "policyname": "cron_job_policy",
+    "schemaname": "cron",
+    "tablename": "job",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "(username = CURRENT_USER)",
+    "with_check": null
+  },
+  {
+    "policyname": "cron_job_run_details_policy",
+    "schemaname": "cron",
+    "tablename": "job_run_details",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "(username = CURRENT_USER)",
+    "with_check": null
+  },
+  {
+    "policyname": "Public read access",
+    "schemaname": "public",
+    "tablename": "users",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public insert access",
+    "schemaname": "public",
+    "tablename": "users",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "true"
+  },
+  {
+    "policyname": "Public update access",
+    "schemaname": "public",
+    "tablename": "users",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "UPDATE",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public read access",
+    "schemaname": "public",
+    "tablename": "chats",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public insert access",
+    "schemaname": "public",
+    "tablename": "chats",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "true"
+  },
+  {
+    "policyname": "Public update access",
+    "schemaname": "public",
+    "tablename": "chats",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "UPDATE",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public read access",
+    "schemaname": "public",
+    "tablename": "chat_participants",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public insert access",
+    "schemaname": "public",
+    "tablename": "chat_participants",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "true"
+  },
+  {
+    "policyname": "Public delete access",
+    "schemaname": "public",
+    "tablename": "chat_participants",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "DELETE",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public read access",
+    "schemaname": "public",
+    "tablename": "messages",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public insert access",
+    "schemaname": "public",
+    "tablename": "messages",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "true"
+  },
+  {
+    "policyname": "Public read access",
+    "schemaname": "public",
+    "tablename": "stories",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public insert access",
+    "schemaname": "public",
+    "tablename": "stories",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "true"
+  },
+  {
+    "policyname": "Public update access",
+    "schemaname": "public",
+    "tablename": "stories",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "UPDATE",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public delete access",
+    "schemaname": "public",
+    "tablename": "stories",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "DELETE",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public read access",
+    "schemaname": "public",
+    "tablename": "story_views",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public insert access",
+    "schemaname": "public",
+    "tablename": "story_views",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "true"
+  },
+  {
+    "policyname": "Public read access",
+    "schemaname": "public",
+    "tablename": "story_reactions",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public insert access",
+    "schemaname": "public",
+    "tablename": "story_reactions",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "true"
+  },
+  {
+    "policyname": "Public delete access",
+    "schemaname": "public",
+    "tablename": "story_reactions",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "DELETE",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public read access",
+    "schemaname": "public",
+    "tablename": "daily_activity",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public insert access",
+    "schemaname": "public",
+    "tablename": "daily_activity",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "true"
+  },
+  {
+    "policyname": "Public update access",
+    "schemaname": "public",
+    "tablename": "daily_activity",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "UPDATE",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public read access",
+    "schemaname": "public",
+    "tablename": "user_badges",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public insert access",
+    "schemaname": "public",
+    "tablename": "user_badges",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "true"
+  },
+  {
+    "policyname": "Public storage access",
+    "schemaname": "storage",
+    "tablename": "objects",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public storage upload",
+    "schemaname": "storage",
+    "tablename": "objects",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "true"
+  },
+  {
+    "policyname": "Public storage update",
+    "schemaname": "storage",
+    "tablename": "objects",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "UPDATE",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Public storage delete",
+    "schemaname": "storage",
+    "tablename": "objects",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "DELETE",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Allow all operations on daily_activities",
+    "schemaname": "public",
+    "tablename": "daily_activities",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "true",
+    "with_check": "true"
+  },
+  {
+    "policyname": "Users can read all story comments",
+    "schemaname": "public",
+    "tablename": "story_comments",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Authenticated users can create story comments",
+    "schemaname": "public",
+    "tablename": "story_comments",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "(auth.uid() IS NOT NULL)"
+  },
+  {
+    "policyname": "Users can update their own story comments",
+    "schemaname": "public",
+    "tablename": "story_comments",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "UPDATE",
+    "qual": "(user_id = auth.uid())",
+    "with_check": null
+  },
+  {
+    "policyname": "Users can delete their own story comments",
+    "schemaname": "public",
+    "tablename": "story_comments",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "DELETE",
+    "qual": "(user_id = auth.uid())",
+    "with_check": null
+  },
+  {
+    "policyname": "Users can read all story reactions",
+    "schemaname": "public",
+    "tablename": "story_reactions",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "policyname": "Authenticated users can create story reactions",
+    "schemaname": "public",
+    "tablename": "story_reactions",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "(auth.uid() IS NOT NULL)"
+  },
+  {
+    "policyname": "Users can delete their own story reactions",
+    "schemaname": "public",
+    "tablename": "story_reactions",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "DELETE",
+    "qual": "(user_id = auth.uid())",
+    "with_check": null
+  }
+]
