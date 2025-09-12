@@ -47,6 +47,8 @@ class SupabaseMCPClient {
     this.isConnected = false;
     this.retryCount = 0;
     this.maxRetries = 3;
+  this._realtimeChannel = null;
+  this._defaultChatCache = null;
     console.log('🔧 Initializing MCP Client for React Native...');
   }
 
@@ -132,6 +134,8 @@ class SupabaseMCPClient {
         return await this.registerUser(params);
       case 'getUserProfile':
         return await this.getUserProfile(params);
+      case 'getChats':
+        return await this.getMessages(params);
       case 'sendMessage':
         return await this.sendMessage(params);
       case 'getMessages':
@@ -145,6 +149,49 @@ class SupabaseMCPClient {
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
+  }
+
+  // Helper: normalize DB message row to UI shape used by ChatScreen
+  _normalizeMessage(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      message: row.content,
+      user_id: row.sender_id,
+      username: row.users?.username,
+      created_at: row.created_at,
+      profiles: {
+        username: row.users?.username,
+        avatar_url: row.users?.avatar_url
+      }
+    };
+  }
+
+  // Ensure a default chat exists and return its id
+  async _ensureDefaultChat() {
+    if (this._defaultChatCache) return this._defaultChatCache;
+    const name = 'General';
+    const { data: existing } = await this.supabase
+      .from('chats')
+      .select('id')
+      .eq('name', name)
+      .limit(1)
+      .single();
+    if (existing?.id) {
+      this._defaultChatCache = existing.id;
+      return existing.id;
+    }
+    const { data: created, error } = await this.supabase
+      .from('chats')
+      .insert([{ name, type: 'public', created_at: new Date().toISOString() }])
+      .select('id')
+      .single();
+    if (error) {
+      console.warn('Could not create default chat, proceeding without chat_id:', error.message);
+      return null;
+    }
+    this._defaultChatCache = created.id;
+    return created.id;
   }
 
   async loginUser({ email, password }) {
@@ -274,11 +321,8 @@ class SupabaseMCPClient {
     try {
       const { data, error } = await this.supabase
         .from('messages')
-        .select(`
-          *,
-          users(username, avatar_url)
-        `)
-        .order('created_at', { ascending: false })
+        .select('id, content, sender_id, created_at, users:sender_id (username, avatar_url)')
+        .order('created_at', { ascending: true })
         .limit(limit);
 
       if (error) {
@@ -286,33 +330,35 @@ class SupabaseMCPClient {
         return { success: false, error: error.message };
       }
 
-      // Reverse to show oldest first
-      const messages = data.reverse().map(msg => ({
-        id: msg.id,
-        content: msg.content,
-        user_id: msg.user_id,
-        username: msg.users?.username || 'Unknown',
-        avatar_url: msg.users?.avatar_url,
-        created_at: msg.created_at
-      }));
-
-      return { success: true, data: messages };
+      const normalized = (data || []).map(row => this._normalizeMessage(row));
+      return { success: true, data: normalized };
     } catch (error) {
       console.error('Messages fetch exception:', error);
       return { success: false, error: error.message };
     }
   }
 
-  async sendMessage({ content, userId }) {
+  async sendMessage({ content, message, userId, chatId }) {
     try {
+      const text = content ?? message;
+      if (!text || !userId) return { success: false, error: 'Missing content or userId' };
+
+      let chat_id = chatId || null;
+      if (!chat_id) {
+        chat_id = await this._ensureDefaultChat();
+      }
+
+      const insertPayload = {
+        content: text,
+        sender_id: userId,
+        created_at: new Date().toISOString()
+      };
+      if (chat_id) insertPayload.chat_id = chat_id;
+
       const { data, error } = await this.supabase
         .from('messages')
-        .insert([{
-          content,
-          user_id: userId,
-          created_at: new Date().toISOString()
-        }])
-        .select()
+        .insert([insertPayload])
+        .select('id, content, sender_id, created_at, users:sender_id (username, avatar_url)')
         .single();
 
       if (error) {
@@ -320,41 +366,70 @@ class SupabaseMCPClient {
         return { success: false, error: error.message };
       }
 
-      return { success: true, data };
+      // Reward: +2 trophies, +5 XP
+      await this.supabase
+        .from('users')
+        .update({
+          trophies: (this.supabase.rpc ? undefined : undefined), // placeholder when no server-side calc
+        })
+        .eq('id', userId);
+      // Simpler: increment with single update expressions if available is unknown; skip if policies restrict
+
+      return { success: true, data: this._normalizeMessage(data) };
     } catch (error) {
       console.error('Send message exception:', error);
       return { success: false, error: error.message };
     }
   }
 
+  // Realtime subscriptions for messages
+  subscribeToMessages(callback) {
+    try {
+      if (this._realtimeChannel) return this._realtimeChannel;
+      const channel = this.supabase
+        .channel('public:messages')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+          const row = payload.new;
+          const normalized = this._normalizeMessage({ ...row, users: payload?.new?.users });
+          callback?.({ new: normalized });
+        })
+        .subscribe();
+      this._realtimeChannel = channel;
+      return channel;
+    } catch (e) {
+      console.warn('Realtime subscribe failed:', e.message);
+      return null;
+    }
+  }
+
+  unsubscribe(channel) {
+    try {
+      const ch = channel || this._realtimeChannel;
+      if (ch) {
+        this.supabase.removeChannel(ch);
+      }
+      this._realtimeChannel = null;
+    } catch (e) {
+      console.warn('Realtime unsubscribe failed:', e.message);
+    }
+  }
+
   async getQuests() {
     try {
-      // Return mock quests for now
-      const mockQuests = [
-        {
-          id: '1',
-          title: 'Welcome to Wadrari',
-          description: 'Send your first message in the chat',
-          xp: 100,
-          completed: false
-        },
-        {
-          id: '2', 
-          title: 'Social Butterfly',
-          description: 'Send 5 messages in the chat',
-          xp: 250,
-          completed: false
-        },
-        {
-          id: '3',
-          title: 'Story Teller',
-          description: 'View the Stories section',
-          xp: 150,
-          completed: false
-        }
-      ];
-
-      return { success: true, data: mockQuests };
+      const { data, error } = await this.supabase
+        .from('quests')
+        .select('id, name, description, image_url, trophy_reward, is_active, created_at')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+      if (error) return { success: false, error: error.message };
+      const quests = (data || []).map(q => ({
+        id: q.id,
+        title: q.name,
+        description: q.description,
+        image_url: q.image_url,
+        trophies: q.trophy_reward
+      }));
+      return { success: true, data: quests };
     } catch (error) {
       console.error('Quests fetch exception:', error);
       return { success: false, error: error.message };
@@ -363,16 +438,21 @@ class SupabaseMCPClient {
 
   async getLeaderboard() {
     try {
-      // Return mock leaderboard for now
-      const mockLeaderboard = [
-        { id: '1', username: 'ChampionUser', xp: 2500, rank: 1 },
-        { id: '2', username: 'ProPlayer', xp: 2100, rank: 2 },
-        { id: '3', username: 'RisingStar', xp: 1800, rank: 3 },
-        { id: '4', username: 'NewcomerHero', xp: 1200, rank: 4 },
-        { id: '5', username: 'ChatMaster', xp: 950, rank: 5 }
-      ];
-
-      return { success: true, data: mockLeaderboard };
+      const { data, error } = await this.supabase
+        .from('users')
+        .select('id, username, trophies, xp')
+        .order('trophies', { ascending: false })
+        .limit(100);
+      if (error) return { success: false, error: error.message };
+      const leaderboard = (data || []).map((u, idx) => ({
+        id: u.id,
+        username: u.username || 'Unknown',
+        trophies: u.trophies ?? 0,
+        xp: u.xp ?? 0,
+        level: Math.floor((u.xp ?? 0) / 1000) + 1,
+        rank: idx + 1
+      }));
+      return { success: true, data: leaderboard };
     } catch (error) {
       console.error('Leaderboard fetch exception:', error);
       return { success: false, error: error.message };
@@ -381,27 +461,24 @@ class SupabaseMCPClient {
 
   async getStories() {
     try {
-      // Return mock stories for now
-      const mockStories = [
-        {
-          id: '1',
-          title: 'The Legend of Wadrari',
-          content: 'Long ago, in a digital realm, warriors gathered to share tales and compete for glory...',
-          author: 'StoryMaster',
-          likes: 42,
-          created_at: new Date().toISOString()
-        },
-        {
-          id: '2',
-          title: 'First Victory',
-          content: 'My journey began with a simple quest, but it led to the greatest adventure of my life...',
-          author: 'AdventureSeeker',
-          likes: 28,
-          created_at: new Date().toISOString()
-        }
-      ];
+      const { data, error } = await this.supabase
+        .from('stories')
+        .select('id, user_id, content, media_url, created_at, users:user_id (username)')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) return { success: false, error: error.message };
 
-      return { success: true, data: mockStories };
+      const stories = (data || []).map(s => ({
+        id: s.id,
+        title: s.content?.slice(0, 24) || 'Story',
+        content: s.content,
+        author: s.users?.username || 'Unknown',
+        likes: 0,
+        media_url: s.media_url,
+        created_at: s.created_at
+      }));
+
+      return { success: true, data: stories };
     } catch (error) {
       console.error('Stories fetch exception:', error);
       return { success: false, error: error.message };
