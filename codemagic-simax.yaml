@@ -27,8 +27,8 @@ workflows:
       vars:
         PACKAGE_NAME: "com.wadrari.mobile"
         GOOGLE_PLAY_TRACK: internal
-      node: 18.17.0
-      npm: 9.6.7
+  node: 20.19.4
+  npm: 10.2.3
       
     scripts:
       - name: Install npm dependencies
@@ -37,9 +37,10 @@ workflows:
           
       - name: Set up Expo and prebuild
         script: |
-          npm install -g @expo/cli@latest
+          # Use local npx expo; no global install needed
           npx expo install --fix
-          npx expo prebuild --platform android --clear
+          # --clear is not a valid flag; use --clean to reset native folders
+          npx expo prebuild --platform android --clean
           
       - name: Set up local.properties
         script: |

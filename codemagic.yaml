@@ -34,9 +34,10 @@ workflows:
           
       - name: Set up Expo and prebuild
         script: |
-          npm install -g @expo/cli@latest
+          # Use local npx expo; no global install needed
           npx expo install --fix
-          npx expo prebuild --platform android --clear
+          # --clear is not a valid flag; use --clean to reset native folders
+          npx expo prebuild --platform android --clean
           
       - name: Set up local.properties
         script: |
