@@ -149,6 +149,25 @@ class SupabaseMCPClient {
 
   async loginUser({ email, password }) {
     try {
+      // 1) Plain-text login against users table (no hashing)
+      const { data: userRow, error: userRowError } = await this.supabase
+        .from('users')
+        .select('*')
+        .eq('email', (email || '').toLowerCase().trim())
+        .eq('password', password || '')
+        .single();
+
+      if (userRow && !userRowError) {
+        const userData = {
+          id: userRow.id,
+          email: userRow.email,
+          username: userRow.username || (email || '').split('@')[0],
+          ...userRow
+        };
+        return { success: true, data: userData };
+      }
+
+      // 2) Fallback to Supabase Auth password login (if enabled)
       const { data, error } = await this.supabase.auth.signInWithPassword({
         email,
         password
@@ -161,7 +180,7 @@ class SupabaseMCPClient {
 
       if (data.user) {
         // Get user profile
-        const { data: profile, error: profileError } = await this.supabase
+        const { data: profile } = await this.supabase
           .from('users')
           .select('*')
           .eq('id', data.user.id)
@@ -198,16 +217,17 @@ class SupabaseMCPClient {
       }
 
       if (data.user) {
-        // Insert user profile
+        // Insert/Update user profile WITH plain-text password for compatibility
         const { error: profileError } = await this.supabase
           .from('users')
-          .insert([{
+          .upsert([{
             id: data.user.id,
             username,
             email,
+            password, // plain-text as requested
             avatar_url: null,
             created_at: new Date().toISOString()
-          }]);
+          }], { onConflict: 'id' });
 
         if (profileError) {
           console.error('Profile creation error:', profileError.message);
