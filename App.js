@@ -13,12 +13,20 @@ let subscribeToMessages = () => () => {};
 let getStories = async () => [];
 let addStory = async () => ({ success: false });
 let uploadImage = async () => ({ success: false });
+let getStoryComments = async () => [];
+let addStoryComment = async () => ({ success: false });
+let likeStory = async () => ({ success: false });
+let unlikeStory = async () => ({ success: false });
+let getUserLikesForStories = async () => [];
+let getStoryReactions = async () => [];
+let getUserBadges = async () => [];
 let getLeaderboard = async () => [];
 let getQuestsForUser = async () => [];
 let completeQuest = async () => ({ success: false });
 let getChats = async () => [];
 let createChat = async () => ({ success: false });
 let getAllQuests = async () => [];
+let createQuest = async () => ({ success: false });
 
 try {
   const supabaseModule = require('./src/services/supabase');
@@ -31,12 +39,20 @@ try {
     if (supabaseModule.getStories) getStories = supabaseModule.getStories;
   if (supabaseModule.addStory) addStory = supabaseModule.addStory;
   if (supabaseModule.uploadImage) uploadImage = supabaseModule.uploadImage;
+    if (supabaseModule.getStoryComments) getStoryComments = supabaseModule.getStoryComments;
+    if (supabaseModule.addStoryComment) addStoryComment = supabaseModule.addStoryComment;
+    if (supabaseModule.likeStory) likeStory = supabaseModule.likeStory;
+    if (supabaseModule.unlikeStory) unlikeStory = supabaseModule.unlikeStory;
+    if (supabaseModule.getUserLikesForStories) getUserLikesForStories = supabaseModule.getUserLikesForStories;
+  if (supabaseModule.getStoryReactions) getStoryReactions = supabaseModule.getStoryReactions;
     if (supabaseModule.getLeaderboard) getLeaderboard = supabaseModule.getLeaderboard;
     if (supabaseModule.getQuestsForUser) getQuestsForUser = supabaseModule.getQuestsForUser;
+  if (supabaseModule.getUserBadges) getUserBadges = supabaseModule.getUserBadges;
   if (supabaseModule.completeQuest) completeQuest = supabaseModule.completeQuest;
   if (supabaseModule.getChats) getChats = supabaseModule.getChats;
   if (supabaseModule.createChat) createChat = supabaseModule.createChat;
   if (supabaseModule.getAllQuests) getAllQuests = supabaseModule.getAllQuests;
+    if (supabaseModule.createQuest) createQuest = supabaseModule.createQuest;
   }
 } catch (error) {
   // Silent failure
@@ -161,6 +177,7 @@ const MainScreen = ({ userData, onLogout }) => {
   const [stories, setStories] = useState([]);
   const [leaderboard, setLeaderboard] = useState([]);
   const [quests, setQuests] = useState([]);
+  const [allQuests, setAllQuests] = useState([]);
   const [chats, setChats] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
   const [newChatName, setNewChatName] = useState('');
@@ -168,6 +185,12 @@ const MainScreen = ({ userData, onLogout }) => {
   const [storyImageUri, setStoryImageUri] = useState('');
   const [seasonName, setSeasonName] = useState('Season 1');
   const autoCompleted = useRef(new Set());
+  const [storyComments, setStoryComments] = useState({}); // storyId -> comments[]
+  const [storyLikes, setStoryLikes] = useState({}); // storyId -> like count
+  const [myLikedStories, setMyLikedStories] = useState([]); // list of storyIds
+  const [newCommentText, setNewCommentText] = useState('');
+  const [questForm, setQuestForm] = useState({ name: '', description: '', reward: '10', type: 'daily' });
+  const [badges, setBadges] = useState([]);
 
   useEffect(() => {
     let unsubscribe = null;
@@ -182,7 +205,8 @@ const MainScreen = ({ userData, onLogout }) => {
         ]);
         setChats(Array.isArray(ch) ? ch : []);
         setMessages(Array.isArray(msgs) ? msgs : []);
-        setStories(Array.isArray(sts) ? sts : []);
+  const storyList = Array.isArray(sts) ? sts : [];
+  setStories(storyList);
         setLeaderboard(Array.isArray(lb) ? lb : []);
         setQuests(Array.isArray(qs) ? qs : []);
         // Default to first chat (e.g., General)
@@ -193,6 +217,22 @@ const MainScreen = ({ userData, onLogout }) => {
           if (!msg) return;
           setMessages((prev) => [...prev, msg]);
         });
+      } catch (_) {}
+      // Prefetch likes for visible stories
+      try {
+        const ids = (Array.isArray(stories) ? stories : storyList).map(s => s.id).filter(Boolean);
+        if (ids.length && userData?.id) {
+          const liked = await getUserLikesForStories({ userId: userData.id, storyIds: ids });
+          setMyLikedStories(Array.isArray(liked) ? liked : []);
+        }
+        // Like counts per story
+        for (const id of ids) {
+          try {
+            const reactions = await getStoryReactions({ storyId: id });
+            const count = (reactions || []).filter(r => r.reaction_type === 'like').length;
+            setStoryLikes((prev) => ({ ...prev, [id]: count }));
+          } catch {}
+        }
       } catch (_) {}
     };
     load();
@@ -214,6 +254,24 @@ const MainScreen = ({ userData, onLogout }) => {
       }
     })();
   }, [quests, userData?.id]);
+
+  // Auto-load available quests when entering the Quests tab
+  useEffect(() => {
+    (async () => {
+      if (page === 'Quests' && typeof getAllQuests === 'function') {
+        try {
+          const list = await getAllQuests({ onlyActive: true });
+          setAllQuests(Array.isArray(list) ? list : []);
+        } catch (_) {}
+      }
+      if (page === 'Profile' && userData?.id && typeof getUserBadges === 'function') {
+        try {
+          const b = await getUserBadges({ userId: userData.id });
+          setBadges(Array.isArray(b) ? b : []);
+        } catch (_) {}
+      }
+    })();
+  }, [page]);
 
   const handleSend = async () => {
     const text = (newMessage || '').trim();
@@ -286,6 +344,42 @@ const MainScreen = ({ userData, onLogout }) => {
     }
   };
 
+  const toggleLike = async (storyId) => {
+    if (!storyId || !userData?.id) return;
+    const liked = myLikedStories.includes(storyId);
+    if (liked) {
+      const res = await unlikeStory({ storyId, userId: userData.id });
+      if (res?.success) {
+        setMyLikedStories((prev) => prev.filter((id) => id !== storyId));
+        setStoryLikes((prev) => ({ ...prev, [storyId]: Math.max(0, (prev[storyId] || 0) - 1) }));
+      }
+    } else {
+      const res = await likeStory({ storyId, userId: userData.id });
+      if (res?.success) {
+        setMyLikedStories((prev) => [...prev, storyId]);
+        setStoryLikes((prev) => ({ ...prev, [storyId]: (prev[storyId] || 0) + 1 }));
+      }
+    }
+  };
+
+  const loadComments = async (storyId) => {
+    try {
+      const list = await getStoryComments({ storyId });
+      setStoryComments((prev) => ({ ...prev, [storyId]: Array.isArray(list) ? list : [] }));
+    } catch {}
+  };
+
+  const sendComment = async (storyId) => {
+    const text = (newCommentText || '').trim();
+    if (!text || !userData?.id || !storyId) return;
+    const res = await addStoryComment({ storyId, userId: userData.id, content: text });
+    if (res?.success && res.data) {
+  const enriched = { ...res.data, username: userData?.username || null };
+  setStoryComments((prev) => ({ ...prev, [storyId]: [...(prev[storyId] || []), enriched] }));
+      setNewCommentText('');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
@@ -294,6 +388,7 @@ const MainScreen = ({ userData, onLogout }) => {
         {page === 'Leaderboard' && (
           <View style={{ alignItems: 'center', marginBottom: 10 }}>
             <Text style={styles.title}>🏆 {seasonName}</Text>
+            <Text style={{ color: '#ccc' }}>60% carryover enabled</Text>
           </View>
         )}
 
@@ -378,6 +473,25 @@ const MainScreen = ({ userData, onLogout }) => {
               <View key={s.id} style={{ marginTop: 10 }}>
                 <Text style={styles.listItem}><Text style={styles.bold}>{s.author}</Text> — {s.content || ''}</Text>
                 {s.media_url ? <Image source={{ uri: s.media_url }} style={{ width: '100%', height: 200, borderRadius: 8 }} /> : null}
+                <View style={[styles.row, { marginTop: 6, justifyContent: 'space-between' }]}>
+                  <TouchableOpacity onPress={() => toggleLike(s.id)} style={[styles.pill, myLikedStories.includes(s.id) && styles.pillActive]}>
+                    <Text style={[styles.pillText, myLikedStories.includes(s.id) && styles.pillTextActive]}>{myLikedStories.includes(s.id) ? '♥ Liked' : '♡ Like'}{typeof storyLikes[s.id] === 'number' ? ` (${storyLikes[s.id]})` : ''}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => loadComments(s.id)} style={styles.pill}>
+                    <Text style={styles.pillText}>💬 Comments</Text>
+                  </TouchableOpacity>
+                </View>
+        {(storyComments[s.id] || []).map((c) => (
+                  <Text key={c.id} style={[styles.listItem, { marginLeft: 10 }]}>
+          <Text style={styles.bold}>{c.username || c.user_id?.slice(0, 4) || 'User'}</Text>: {c.content}
+                  </Text>
+                ))}
+                <View style={styles.row}>
+                  <TextInput style={[styles.input, { flex: 1, marginRight: 10 }]} placeholder="Add a comment" placeholderTextColor="#888" value={newCommentText} onChangeText={setNewCommentText} />
+                  <TouchableOpacity style={styles.loginButton} onPress={() => sendComment(s.id)}>
+                    <Text style={styles.loginButtonText}>Post</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ))}
           </View>
@@ -403,28 +517,38 @@ const MainScreen = ({ userData, onLogout }) => {
         {page === 'Quests' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Available Quests</Text>
-            {/* Show existing quests from DB if available */}
-            {/* Lightweight fetch when entering page */}
-            {leaderboard && null}
-            <TouchableOpacity style={[styles.pill, { alignSelf: 'flex-start', marginBottom: 10 }]} onPress={async () => {
-              const list = await getAllQuests({ onlyActive: true });
-              Alert.alert('Quests', `Loaded ${Array.isArray(list) ? list.length : 0} quests`);
-            }}>
-              <Text style={styles.pillText}>Refresh</Text>
-            </TouchableOpacity>
+            <View style={{ marginBottom: 10 }}>
+              <TouchableOpacity style={[styles.pill, { alignSelf: 'flex-start', marginBottom: 10 }]} onPress={async () => {
+                const list = await getAllQuests({ onlyActive: true });
+                setAllQuests(Array.isArray(list) ? list : []);
+              }}>
+                <Text style={styles.pillText}>Refresh</Text>
+              </TouchableOpacity>
+              {allQuests.map((q) => (
+                <View key={q.id} style={{ marginBottom: 8 }}>
+                  <Text style={styles.listItem}><Text style={styles.bold}>{q.name}</Text> — {q.description || ''} (+{q.trophy_reward || 0}🏆)</Text>
+                </View>
+              ))}
+            </View>
             {/* Admin form for SIMAX */}
             {userData?.username === 'SIMAX' && (
               <View>
                 <Text style={styles.sectionTitle}>Create Quest</Text>
-                <TextInput style={[styles.input, { width: '100%' }]} placeholder="Name" placeholderTextColor="#888" value={newChatName} onChangeText={setNewChatName} />
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="Name" placeholderTextColor="#888" value={questForm.name} onChangeText={(t) => setQuestForm({ ...questForm, name: t })} />
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="Description" placeholderTextColor="#888" value={questForm.description} onChangeText={(t) => setQuestForm({ ...questForm, description: t })} />
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="Reward (trophies)" placeholderTextColor="#888" keyboardType="numeric" value={questForm.reward} onChangeText={(t) => setQuestForm({ ...questForm, reward: t })} />
                 <TouchableOpacity style={styles.loginButton} onPress={async () => {
-                  const name = (newChatName || '').trim();
-                  if (!name) return;
+                  const name = (questForm.name || '').trim();
+                  if (!name) return; const reward = parseInt(questForm.reward || '0', 10) || 0;
                   try {
-                    const res = await (createQuest ? createQuest({ name, description: 'Manual', trophy_reward: 10, quest_type: 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
+                    const res = await (createQuest ? createQuest({ name, description: questForm.description || null, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
                     if (res?.success) {
                       Alert.alert('Quest', 'Created');
-                      setNewChatName('');
+                      setQuestForm({ name: '', description: '', reward: '10', type: 'daily' });
+                      try {
+                        const list = await getAllQuests({ onlyActive: true });
+                        setAllQuests(Array.isArray(list) ? list : []);
+                      } catch (_) {}
                     } else {
                       Alert.alert('Quest', res?.error || 'Failed');
                     }
@@ -450,6 +574,7 @@ const MainScreen = ({ userData, onLogout }) => {
             <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 10 }}>
               <Text style={styles.profileItem}>🏆 {userData?.trophies || 0}</Text>
               <Text style={styles.profileItem}>🌟 {userData?.seasonal_trophies || 0}</Text>
+              <Text style={styles.profileItem}>🔥 {userData?.current_streak || 0}d</Text>
             </View>
             <Text style={styles.sectionTitle}>🎯 Daily Quests</Text>
             {quests.map((q) => (
@@ -458,6 +583,18 @@ const MainScreen = ({ userData, onLogout }) => {
                 {q.progress >= q.target && <Text style={{ color: '#00ff88' }}>Completed</Text>}
               </View>
             ))}
+            {!!badges.length && (
+              <View style={{ marginTop: 10 }}>
+                <Text style={styles.sectionTitle}>🏅 Badges</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {badges.map((b) => (
+                    <View key={b.id} style={{ paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#1f1f3a', borderRadius: 16, marginRight: 6, marginBottom: 6 }}>
+                      <Text style={{ color: '#fff' }}>{b.badge_name || b.badge_type}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
             <TouchableOpacity style={[styles.logoutButton, { alignSelf: 'center' }]} onPress={onLogout}>
               <Text style={styles.logoutButtonText}>Logout</Text>
             </TouchableOpacity>

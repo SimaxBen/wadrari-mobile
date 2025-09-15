@@ -540,7 +540,17 @@ export const getStoryComments = async ({ storyId }) => {
       .eq('story_id', storyId)
       .order('created_at', { ascending: true });
     if (error) throw error;
-    return data || [];
+    const list = data || [];
+    // attach usernames
+    const ids = Array.from(new Set(list.map(c => c.user_id).filter(Boolean)));
+    let nameMap = {};
+    try {
+      if (ids.length) {
+        const { data: users } = await supabase.from('users').select('id, username').in('id', ids);
+        nameMap = Object.fromEntries((users || []).map(u => [u.id, u.username]));
+      }
+    } catch (_) {}
+    return list.map(c => ({ ...c, username: nameMap[c.user_id] || null }));
   } catch (e) {
     return [];
   }
