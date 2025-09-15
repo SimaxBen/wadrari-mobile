@@ -46,18 +46,20 @@ const ExpoSecureStorageAdapter = {
 };
 
 // Initialize Supabase client with persistent session in RN
-const supabase = createClient(supabaseUrl, supabaseKey, {
+const supabase = (supabaseUrl && supabaseKey)
+  ? createClient(supabaseUrl, supabaseKey, {
   auth: {
     storage: ExpoSecureStorageAdapter,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false
   }
-});
+    })
+  : null;
 
 class SupabaseMCPClient {
   constructor() {
-    this.supabase = supabase;
+  this.supabase = supabase;
     this.isConnected = false;
     this.retryCount = 0;
     this.maxRetries = 3;
@@ -69,6 +71,9 @@ class SupabaseMCPClient {
 
   async testConnection() {
     try {
+      if (!this.supabase) {
+        throw new Error('Supabase not configured');
+      }
       console.log('🔍 Testing Supabase connection...');
       
       // Use a simple query to test connection
@@ -96,6 +101,9 @@ class SupabaseMCPClient {
   async callTool(toolName, params = {}) {
     try {
       console.log(`🔧 Calling tool: ${toolName}`, params);
+      if (!this.supabase && toolName !== 'loginUser' && toolName !== 'registerUser') {
+        throw new Error('Backend not configured');
+      }
       
       // Add timeout to prevent hanging
       const timeoutPromise = new Promise((_, reject) =>
@@ -183,6 +191,7 @@ class SupabaseMCPClient {
   }
 
   async _getUserById(userId) {
+  if (!this.supabase) return null;
     if (!userId) return null;
     if (this._userCache.has(userId)) return this._userCache.get(userId);
     const { data, error } = await this.supabase
@@ -199,6 +208,7 @@ class SupabaseMCPClient {
 
   // Ensure a default chat exists and return its id
   async _ensureDefaultChat() {
+  if (!this.supabase) return null;
     if (this._defaultChatCache) return this._defaultChatCache;
     const name = 'General';
     const { data: existing } = await this.supabase
@@ -226,6 +236,9 @@ class SupabaseMCPClient {
 
   async loginUser({ email, password }) {
     try {
+      if (!this.supabase) {
+        return { success: false, error: 'Backend not configured' };
+      }
       // 1) Plain-text login against users table (no hashing)
       const { data: userRow, error: userRowError } = await this.supabase
         .from('users')
@@ -285,6 +298,9 @@ class SupabaseMCPClient {
 
   async registerUser({ email, password, username }) {
     try {
+      if (!this.supabase) {
+        return { success: false, error: 'Backend not configured' };
+      }
       // First, sign up the user
       const { data, error } = await this.supabase.auth.signUp({
         email,
@@ -333,6 +349,9 @@ class SupabaseMCPClient {
 
   async getUserProfile({ userId }) {
     try {
+      if (!this.supabase) {
+        return { success: false, error: 'Backend not configured' };
+      }
       const { data, error } = await this.supabase
         .from('users')
         .select('*')
@@ -353,6 +372,9 @@ class SupabaseMCPClient {
 
   async getMessages({ limit = 50 } = {}) {
     try {
+      if (!this.supabase) {
+        return { success: false, error: 'Backend not configured' };
+      }
       const { data, error } = await this.supabase
         .from('messages')
         .select('id, content, sender_id, created_at, users:sender_id (username, avatar_url)')
@@ -374,6 +396,9 @@ class SupabaseMCPClient {
 
   async sendMessage({ content, message, userId, chatId }) {
     try {
+      if (!this.supabase) {
+        return { success: false, error: 'Backend not configured' };
+      }
       const text = content ?? message;
       if (!text || !userId) return { success: false, error: 'Missing content or userId' };
 
@@ -428,6 +453,7 @@ class SupabaseMCPClient {
   // Realtime subscriptions for messages
   subscribeToMessages(callback) {
     try {
+  if (!this.supabase) return null;
       if (this._realtimeChannel) return this._realtimeChannel;
       const channel = this.supabase
         .channel('public:messages')
@@ -469,6 +495,9 @@ class SupabaseMCPClient {
 
   async getQuests() {
     try {
+      if (!this.supabase) {
+        return { success: false, error: 'Backend not configured' };
+      }
       const { data, error } = await this.supabase
         .from('quests')
         .select('id, name, description, image_url, trophy_reward, is_active, created_at')
@@ -529,6 +558,9 @@ class SupabaseMCPClient {
 
   async getLeaderboard() {
     try {
+      if (!this.supabase) {
+        return { success: false, error: 'Backend not configured' };
+      }
       const { data, error } = await this.supabase
         .from('users')
         .select('id, username, trophies, xp')
@@ -552,6 +584,9 @@ class SupabaseMCPClient {
 
   async getStories() {
     try {
+      if (!this.supabase) {
+        return { success: false, error: 'Backend not configured' };
+      }
       const { data, error } = await this.supabase
         .from('stories')
         .select('id, user_id, content, media_url, created_at, users:user_id (username)')
