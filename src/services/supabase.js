@@ -134,20 +134,30 @@ export const testConnection = async () => {
 export const getMessages = async ({ limit = 50 } = {}) => {
   try {
     const { data, error } = await supabase
-  .from('messages')
-  .select('id, content, sender_id, created_at')
+      .from('messages')
+      .select('id, content, sender_id, created_at')
       .order('created_at', { ascending: true })
       .limit(limit);
 
     if (error) throw error;
 
+    // attach usernames best-effort
+    const ids = Array.from(new Set((data || []).map(r => r.sender_id).filter(Boolean)));
+    let nameMap = {};
+    try {
+      if (ids.length) {
+        const { data: users } = await supabase.from('users').select('id, username').in('id', ids);
+        nameMap = Object.fromEntries((users || []).map(u => [u.id, u.username]));
+      }
+    } catch {}
+
     return (data || []).map(row => ({
       id: row.id,
       message: row.content,
       user_id: row.sender_id,
-      username: undefined,
+      username: nameMap[row.sender_id] || undefined,
       created_at: row.created_at,
-      profiles: {}
+      profiles: { username: nameMap[row.sender_id] }
     }));
   } catch (e) {
     return [];
@@ -241,16 +251,25 @@ export const getStories = async ({ limit = 20 } = {}) => {
   try {
     const { data, error } = await supabase
       .from('stories')
-      .select('id, user_id, content, media_url, created_at')
+      .select('id, user_id, content, media_url, created_at, expires_at')
       .order('created_at', { ascending: false })
       .limit(limit);
     if (error) throw error;
+    const ids = Array.from(new Set((data || []).map(s => s.user_id).filter(Boolean)));
+    let nameMap = {};
+    try {
+      if (ids.length) {
+        const { data: users } = await supabase.from('users').select('id, username').in('id', ids);
+        nameMap = Object.fromEntries((users || []).map(u => [u.id, u.username]));
+      }
+    } catch {}
     return (data || []).map(s => ({
       id: s.id,
       content: s.content,
-      author: 'Unknown',
+      author: nameMap[s.user_id] || 'Unknown',
       media_url: s.media_url,
-      created_at: s.created_at
+      created_at: s.created_at,
+      expires_at: s.expires_at || null,
     }));
   } catch (e) {
     return [];
@@ -261,8 +280,8 @@ export const getStories = async ({ limit = 20 } = {}) => {
 export const getLeaderboard = async ({ limit = 20 } = {}) => {
   try {
     const { data, error } = await supabase
-      .from('users')
-      .select('id, username, trophies')
+  .from('users')
+  .select('id, username, trophies, seasonal_trophies, avatar_url')
       .order('trophies', { ascending: false })
       .limit(limit);
     if (error) throw error;
@@ -347,10 +366,19 @@ export const getMessagesByChat = async ({ chatId, limit = 100 }) => {
       .order('created_at', { ascending: true })
       .limit(limit);
     if (error) throw error;
+    const ids = Array.from(new Set((data || []).map(r => r.sender_id).filter(Boolean)));
+    let nameMap = {};
+    try {
+      if (ids.length) {
+        const { data: users } = await supabase.from('users').select('id, username').in('id', ids);
+        nameMap = Object.fromEntries((users || []).map(u => [u.id, u.username]));
+      }
+    } catch {}
     return (data || []).map(row => ({
       id: row.id,
       message: row.content,
       user_id: row.sender_id,
+      username: nameMap[row.sender_id] || undefined,
       chat_id: row.chat_id,
       created_at: row.created_at
     }));
@@ -384,12 +412,14 @@ export const addStory = async ({ userId, content, mediaUrl = null, type = null }
       content: content || null,
       media_url: mediaUrl || null,
       type: type || (mediaUrl ? 'image' : 'text'),
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      // use existing schema: stories.expires_at (24h from now) to mimic snap stories
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     };
     const { data, error } = await supabase
       .from('stories')
       .insert([payload])
-      .select('id, user_id, content, media_url, created_at')
+      .select('id, user_id, content, media_url, created_at, expires_at')
       .single();
     if (error) throw error;
   // Update streak best-effort
@@ -397,6 +427,20 @@ export const addStory = async ({ userId, content, mediaUrl = null, type = null }
     return { success: true, data };
   } catch (e) {
     return { success: false, error: e.message };
+  }
+};
+
+// Groups list with images helper (alias to getChats)
+export const getGroups = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('chats')
+      .select('id, name, type, image_url, created_at')
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    return [];
   }
 };
 

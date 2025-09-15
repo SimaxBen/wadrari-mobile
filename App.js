@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, StatusBar, Alert, ScrollView, Image } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
 import { configureNotifications, notifyNewMessage, notifyStoryPosted } from './src/services/notifications';
 
@@ -17,6 +18,7 @@ let getQuestsForUser = async () => [];
 let completeQuest = async () => ({ success: false });
 let getChats = async () => [];
 let createChat = async () => ({ success: false });
+let getAllQuests = async () => [];
 
 try {
   const supabaseModule = require('./src/services/supabase');
@@ -34,6 +36,7 @@ try {
   if (supabaseModule.completeQuest) completeQuest = supabaseModule.completeQuest;
   if (supabaseModule.getChats) getChats = supabaseModule.getChats;
   if (supabaseModule.createChat) createChat = supabaseModule.createChat;
+  if (supabaseModule.getAllQuests) getAllQuests = supabaseModule.getAllQuests;
   }
 } catch (error) {
   // Silent failure
@@ -163,12 +166,14 @@ const MainScreen = ({ userData, onLogout }) => {
   const [newChatName, setNewChatName] = useState('');
   const [storyText, setStoryText] = useState('');
   const [storyImageUri, setStoryImageUri] = useState('');
+  const [seasonName, setSeasonName] = useState('Season 1');
+  const autoCompleted = useRef(new Set());
 
   useEffect(() => {
     let unsubscribe = null;
     const load = async () => {
       try {
-        const [ch, msgs, sts, lb, qs] = await Promise.all([
+  const [ch, msgs, sts, lb, qs] = await Promise.all([
           getChats({ includePublic: true }),
           getMessages({ limit: 50 }),
           getStories({ limit: 20 }),
@@ -195,6 +200,20 @@ const MainScreen = ({ userData, onLogout }) => {
       try { if (typeof unsubscribe === 'function') unsubscribe(); } catch (_) {}
     };
   }, [userData?.id]);
+
+  // Auto-complete daily quests when target reached (no manual click)
+  useEffect(() => {
+    (async () => {
+      for (const q of quests) {
+        if (q.progress >= q.target && !autoCompleted.current.has(q.id)) {
+          const res = await completeQuest({ userId: userData?.id, questId: q.id, reward: q.reward });
+          if (res?.success) {
+            autoCompleted.current.add(q.id);
+          }
+        }
+      }
+    })();
+  }, [quests, userData?.id]);
 
   const handleSend = async () => {
     const text = (newMessage || '').trim();
@@ -270,61 +289,62 @@ const MainScreen = ({ userData, onLogout }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
-      <ScrollView style={styles.mainContainer}>
-        <Text style={styles.title}>⚔️ WADRARI</Text>
-        <Text style={styles.subtitle}>Welcome back, {userData?.username || 'User'}!</Text>
-
-        {/* Simple top tabs */}
-        <View style={styles.tabs}>
-          {['Chat','Stories','Leaderboard','Quests','Profile'].map((p) => (
-            <TouchableOpacity key={p} style={[styles.tab, page === p && styles.tabActive]} onPress={() => setPage(p)}>
-              <Text style={[styles.tabText, page === p && styles.tabTextActive]}>{p}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Profile summary */}
-        <View style={styles.profileContainer}>
-          <Text style={styles.profileTitle}>Profile Information</Text>
-          <Text style={styles.profileItem}>ID: {userData?.id || 'N/A'}</Text>
-          <Text style={styles.profileItem}>Username: {userData?.username || 'N/A'}</Text>
-          <Text style={styles.profileItem}>Display Name: {userData?.display_name || 'N/A'}</Text>
-          <Text style={styles.profileItem}>🏆 Trophies: {userData?.trophies || 0}</Text>
-          <Text style={styles.profileItem}>🌟 Seasonal: {userData?.seasonal_trophies || 0}</Text>
-          <Text style={styles.profileItem}>💬 Messages: {userData?.total_messages || 0}</Text>
-          <Text style={styles.profileItem}>📚 Stories: {userData?.total_stories || 0}</Text>
-        </View>
+      <ScrollView style={[styles.mainContainer, { marginBottom: 70 }]}>
+        {/* Page header where relevant */}
+        {page === 'Leaderboard' && (
+          <View style={{ alignItems: 'center', marginBottom: 10 }}>
+            <Text style={styles.title}>🏆 {seasonName}</Text>
+          </View>
+        )}
 
         {page === 'Chat' && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>💬 Chats</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
-              {chats.map((c) => (
-                <TouchableOpacity key={c.id} style={[styles.pill, activeChat?.id === c.id && styles.pillActive]} onPress={async () => {
-                  setActiveChat(c);
-                  const list = await getMessagesByChat({ chatId: c.id, limit: 100 });
-                  setMessages(Array.isArray(list) ? list : []);
-                }}>
-                  <Text style={[styles.pillText, activeChat?.id === c.id && styles.pillTextActive]}>{c.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <View style={styles.row}>
-              <TextInput style={[styles.input, { flex: 1, marginRight: 10 }]} placeholder="New group name" placeholderTextColor="#888" value={newChatName} onChangeText={setNewChatName} />
-              <TouchableOpacity style={styles.loginButton} onPress={handleCreateChat}><Text style={styles.loginButtonText}>Create</Text></TouchableOpacity>
-            </View>
-            <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Messages</Text>
-            {messages.map((m) => (
-              <Text key={m.id} style={styles.listItem}>
-                <Text style={styles.bold}>{m.username || 'User'}:</Text> {m.message}
-              </Text>
-            ))}
-            <View style={styles.row}>
-              <TextInput style={[styles.input, { flex: 1, marginRight: 10 }]} placeholder="Type a message" placeholderTextColor="#888" value={newMessage} onChangeText={setNewMessage} />
-              <TouchableOpacity style={styles.loginButton} onPress={async () => { await handleSend(); await notifyNewMessage(userData?.username, newMessage); }}>
-                <Text style={styles.loginButtonText}>Send</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.sectionTitle}>💬 Groups</Text>
+            {!activeChat && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {chats.map((c) => (
+                  <TouchableOpacity key={c.id} style={styles.groupCard} onPress={async () => {
+                    setActiveChat(c);
+                    const list = await getMessagesByChat({ chatId: c.id, limit: 100 });
+                    setMessages(Array.isArray(list) ? list : []);
+                  }}>
+                    <View style={styles.groupAvatar}>
+                      {c.image_url ? (
+                        <Image source={{ uri: c.image_url }} style={styles.groupAvatarImg} />
+                      ) : (
+                        <Text style={styles.groupAvatarText}>{(c.name || 'G')[0]}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.groupName}>{c.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+            {!activeChat && (
+              <View style={[styles.row, { marginTop: 10 }]}>
+                <TextInput style={[styles.input, { flex: 1, marginRight: 10 }]} placeholder="New group name" placeholderTextColor="#888" value={newChatName} onChangeText={setNewChatName} />
+                <TouchableOpacity style={styles.loginButton} onPress={handleCreateChat}><Text style={styles.loginButtonText}>Create</Text></TouchableOpacity>
+              </View>
+            )}
+            {activeChat && (
+              <View>
+                <View style={styles.row}>
+                  <TouchableOpacity onPress={() => setActiveChat(null)} style={[styles.pill, { marginBottom: 10 }]}><Text style={styles.pillText}>⬅ Back</Text></TouchableOpacity>
+                  <Text style={[styles.sectionTitle, { marginLeft: 10 }]}>{activeChat.name}</Text>
+                </View>
+                {messages.map((m) => (
+                  <Text key={m.id} style={styles.listItem}>
+                    <Text style={styles.bold}>{m.username || 'User'}</Text> · {new Date(m.created_at).toLocaleString()}{'\n'}{m.message}
+                  </Text>
+                ))}
+                <View style={styles.row}>
+                  <TextInput style={[styles.input, { flex: 1, marginRight: 10 }]} placeholder="Type a message" placeholderTextColor="#888" value={newMessage} onChangeText={setNewMessage} />
+                  <TouchableOpacity style={styles.loginButton} onPress={async () => { await handleSend(); await notifyNewMessage(userData?.username, newMessage); }}>
+                    <Text style={styles.loginButtonText}>Send</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
         )}
 
@@ -332,12 +352,29 @@ const MainScreen = ({ userData, onLogout }) => {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>📚 Stories</Text>
             <TextInput style={[styles.input, { width: '100%' }]} placeholder="Story text" placeholderTextColor="#888" value={storyText} onChangeText={setStoryText} />
-            <TextInput style={[styles.input, { width: '100%' }]} placeholder="Image URI (optional)" placeholderTextColor="#888" value={storyImageUri} onChangeText={setStoryImageUri} />
-            {!!storyImageUri && <Image source={{ uri: storyImageUri }} style={{ width: '100%', height: 160, borderRadius: 8, marginBottom: 10 }} />}
+            <View style={styles.row}>
+              <TouchableOpacity style={[styles.loginButton, { flex: 1, marginRight: 10 }]} onPress={async () => {
+                const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
+                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+                if (!result.canceled && result.assets?.[0]?.uri) setStoryImageUri(result.assets[0].uri);
+              }}>
+                <Text style={styles.loginButtonText}>Pick Image</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.loginButton, { flex: 1 }]} onPress={async () => {
+                const cap = await ImagePicker.requestCameraPermissionsAsync();
+                if (cap.status !== 'granted') { Alert.alert('Permission', 'Camera required'); return; }
+                const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+                if (!result.canceled && result.assets?.[0]?.uri) setStoryImageUri(result.assets[0].uri);
+              }}>
+                <Text style={styles.loginButtonText}>Camera</Text>
+              </TouchableOpacity>
+            </View>
+            {!!storyImageUri && <Image source={{ uri: storyImageUri }} style={{ width: '100%', height: 160, borderRadius: 8, marginVertical: 10 }} />}
             <TouchableOpacity style={styles.loginButton} onPress={async () => { await handleAddStory(); await notifyStoryPosted(); }}>
               <Text style={styles.loginButtonText}>Add Story</Text>
             </TouchableOpacity>
-            {stories.map((s) => (
+            {stories.filter((s) => !s.expires_at || new Date(s.expires_at) > new Date()).map((s) => (
               <View key={s.id} style={{ marginTop: 10 }}>
                 <Text style={styles.listItem}><Text style={styles.bold}>{s.author}</Text> — {s.content || ''}</Text>
                 {s.media_url ? <Image source={{ uri: s.media_url }} style={{ width: '100%', height: 200, borderRadius: 8 }} /> : null}
@@ -349,44 +386,92 @@ const MainScreen = ({ userData, onLogout }) => {
         {page === 'Leaderboard' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>🏅 Leaderboard</Text>
-            {leaderboard.map((u, i) => (
-              <Text key={u.id || i} style={styles.listItem}>
-                {i + 1}. <Text style={styles.bold}>{u.username || 'Unknown'}</Text> — {u.trophies ?? 0}🏆 • Season: {u.seasonal_trophies ?? 0}
-              </Text>
-            ))}
-            <Text style={{ color: '#cccccc', marginTop: 10 }}>
-              Current season shown. At season reset, trophies carry 60% to seasonal.
-            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              {leaderboard.map((u, i) => (
+                <View key={u.id || i} style={styles.userCard}>
+                  <View style={styles.userAvatar}>
+                    {u.avatar_url ? <Image source={{ uri: u.avatar_url }} style={styles.userAvatarImg} /> : <Text style={styles.userAvatarText}>{(u.username || 'U')[0]}</Text>}
+                  </View>
+                  <Text style={styles.bold}>{i + 1}. {u.username || 'Unknown'}</Text>
+                  <Text style={{ color: '#ccc' }}>{u.trophies ?? 0}🏆</Text>
+                </View>
+              ))}
+            </View>
           </View>
   )}
 
         {page === 'Quests' && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🛠️ Admin Quests (SIMAX)</Text>
-            <Text style={{ color: '#cccccc', marginBottom: 8 }}>Create quests with type: lifetime, daily, or unlimited</Text>
-            {/* Minimal admin form would go here; keeping UI light to avoid clutter. */}
-            <Text style={{ color: '#888' }}>Ask me to enable in-app form, or grant INSERT RLS for SIMAX only.</Text>
+            <Text style={styles.sectionTitle}>Available Quests</Text>
+            {/* Show existing quests from DB if available */}
+            {/* Lightweight fetch when entering page */}
+            {leaderboard && null}
+            <TouchableOpacity style={[styles.pill, { alignSelf: 'flex-start', marginBottom: 10 }]} onPress={async () => {
+              const list = await getAllQuests({ onlyActive: true });
+              Alert.alert('Quests', `Loaded ${Array.isArray(list) ? list.length : 0} quests`);
+            }}>
+              <Text style={styles.pillText}>Refresh</Text>
+            </TouchableOpacity>
+            {/* Admin form for SIMAX */}
+            {userData?.username === 'SIMAX' && (
+              <View>
+                <Text style={styles.sectionTitle}>Create Quest</Text>
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="Name" placeholderTextColor="#888" value={newChatName} onChangeText={setNewChatName} />
+                <TouchableOpacity style={styles.loginButton} onPress={async () => {
+                  const name = (newChatName || '').trim();
+                  if (!name) return;
+                  try {
+                    const res = await (createQuest ? createQuest({ name, description: 'Manual', trophy_reward: 10, quest_type: 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
+                    if (res?.success) {
+                      Alert.alert('Quest', 'Created');
+                      setNewChatName('');
+                    } else {
+                      Alert.alert('Quest', res?.error || 'Failed');
+                    }
+                  } catch (e) { Alert.alert('Quest', e.message); }
+                }}>
+                  <Text style={styles.loginButtonText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         )}
 
         {page === 'Profile' && (
           <View style={styles.section}>
+            {/* Fixed header with avatar and name */}
+            <View style={{ alignItems: 'center', marginBottom: 10 }}>
+              <View style={styles.userAvatarLarge}>
+                {userData?.avatar_url ? <Image source={{ uri: userData.avatar_url }} style={styles.userAvatarImgLarge} /> : <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0]}</Text>}
+              </View>
+              <Text style={[styles.title, { marginBottom: 0 }]}>{userData?.username}</Text>
+            </View>
+            {/* Stats row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 10 }}>
+              <Text style={styles.profileItem}>🏆 {userData?.trophies || 0}</Text>
+              <Text style={styles.profileItem}>🌟 {userData?.seasonal_trophies || 0}</Text>
+            </View>
             <Text style={styles.sectionTitle}>🎯 Daily Quests</Text>
             {quests.map((q) => (
               <View key={q.id} style={{ marginBottom: 10 }}>
                 <Text style={styles.listItem}><Text style={styles.bold}>{q.title}</Text> — {q.description} • {q.progress}/{q.target} (+{q.reward}🏆)</Text>
-                <TouchableOpacity disabled={q.progress >= q.target} style={[styles.loginButton, q.progress >= q.target && { opacity: 0.6 }]} onPress={() => handleCompleteQuest(q)}>
-                  <Text style={styles.loginButtonText}>{q.progress >= q.target ? 'Completed' : 'Complete'}</Text>
-                </TouchableOpacity>
+                {q.progress >= q.target && <Text style={{ color: '#00ff88' }}>Completed</Text>}
               </View>
             ))}
+            <TouchableOpacity style={[styles.logoutButton, { alignSelf: 'center' }]} onPress={onLogout}>
+              <Text style={styles.logoutButtonText}>Logout</Text>
+            </TouchableOpacity>
           </View>
         )}
-
-        <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
-          <Text style={styles.logoutButtonText}>Logout</Text>
-        </TouchableOpacity>
       </ScrollView>
+      {/* Bottom tabs */}
+      <View style={styles.bottomTabs}>
+        {['Chat','Stories','Leaderboard','Quests','Profile'].map((p) => (
+          <TouchableOpacity key={p} style={[styles.bottomTab, page === p && styles.bottomTabActive]} onPress={() => setPage(p)}>
+            <Text style={[styles.bottomTabText, page === p && styles.bottomTabTextActive]}>{p}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
     </SafeAreaView>
   );
 };
@@ -578,6 +663,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     marginBottom: 10,
   },
+  bottomTabs: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 10,
+    backgroundColor: '#2a2a4e',
+    borderTopWidth: 1,
+    borderTopColor: '#3b3b69',
+  },
+  bottomTab: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12 },
+  bottomTabActive: { backgroundColor: '#4a90e2' },
+  bottomTabText: { color: '#cccccc' },
+  bottomTabTextActive: { color: '#ffffff', fontWeight: 'bold' },
   tab: {
     paddingVertical: 8,
     paddingHorizontal: 16,
@@ -612,6 +713,18 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   bold: { fontWeight: 'bold', color: '#ffffff' },
+  groupCard: { width: '30%', alignItems: 'center', padding: 10, backgroundColor: '#1f1f3a', borderRadius: 10, marginBottom: 10 },
+  groupAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#4a90e2', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  groupAvatarImg: { width: 64, height: 64, borderRadius: 32 },
+  groupAvatarText: { color: '#fff', fontWeight: 'bold', fontSize: 20 },
+  groupName: { color: '#fff', textAlign: 'center' },
+  userCard: { width: '30%', alignItems: 'center', padding: 10, backgroundColor: '#1f1f3a', borderRadius: 10, marginBottom: 10 },
+  userAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#4a90e2', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  userAvatarImg: { width: 64, height: 64, borderRadius: 32 },
+  userAvatarText: { color: '#fff', fontWeight: 'bold' },
+  userAvatarLarge: { width: 96, height: 96, borderRadius: 48, backgroundColor: '#4a90e2', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  userAvatarImgLarge: { width: 96, height: 96, borderRadius: 48 },
+  userAvatarTextLarge: { color: '#fff', fontWeight: 'bold', fontSize: 28 },
 });
 
 // Export with Error Boundary
