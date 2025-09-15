@@ -18,7 +18,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.wadrari.mobile"
     },
-    "android": {
+  "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a1a2e"
@@ -26,9 +26,20 @@
   "package": "com.wadrari.mobile",
   "versionCode": 2,
       "permissions": [
-        "android.permission.INTERNET"
+        "android.permission.INTERNET",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#4a90e2",
+          "sounds": []
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     }

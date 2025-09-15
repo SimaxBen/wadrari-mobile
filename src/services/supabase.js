@@ -283,16 +283,22 @@ export const getQuestsForUser = async (userId) => {
       .select('id', { count: 'exact', head: true })
       .eq('sender_id', userId)
       .gte('created_at', startOfDay);
+    const { count: storiesCount } = await supabase
+      .from('stories')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', startOfDay);
 
     const msgCount = count ?? 0;
+    const storyCount = storiesCount ?? 0;
     return [
-      { id: 'daily_msg_1', title: 'Say Hello', description: 'Send 1 message today', target: 1, reward: 10, progress: msgCount },
-      { id: 'daily_msg_5', title: 'Keep Talking', description: 'Send 5 messages today', target: 5, reward: 25, progress: msgCount }
+      { id: 'daily_msg_10', title: 'Talker', description: 'Send 10 messages today', target: 10, reward: 25, progress: msgCount },
+      { id: 'daily_story_3', title: 'Storyteller', description: 'Post 3 stories today', target: 3, reward: 25, progress: storyCount }
     ];
   } catch (e) {
     return [
-      { id: 'daily_msg_1', title: 'Say Hello', description: 'Send 1 message today', target: 1, reward: 10, progress: 0 },
-      { id: 'daily_msg_5', title: 'Keep Talking', description: 'Send 5 messages today', target: 5, reward: 25, progress: 0 }
+      { id: 'daily_msg_10', title: 'Talker', description: 'Send 10 messages today', target: 10, reward: 25, progress: 0 },
+      { id: 'daily_story_3', title: 'Storyteller', description: 'Post 3 stories today', target: 3, reward: 25, progress: 0 }
     ];
   }
 };
@@ -386,6 +392,8 @@ export const addStory = async ({ userId, content, mediaUrl = null, type = null }
       .select('id, user_id, content, media_url, created_at')
       .single();
     if (error) throw error;
+  // Update streak best-effort
+  try { await updateStreakOnActivity(userId); } catch (_) {}
     return { success: true, data };
   } catch (e) {
     return { success: false, error: e.message };
@@ -430,6 +438,230 @@ export const completeQuest = async ({ userId, questId, reward = 0 }) => {
       }
     } catch (_) {}
 
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+
+// ==================== Quests (admin create) ====================
+export const getAllQuests = async ({ onlyActive = true } = {}) => {
+  try {
+    let q = supabase
+      .from('quests')
+      .select('id, name, description, image_url, trophy_reward, quest_type, is_active, created_at')
+      .order('created_at', { ascending: false });
+    if (onlyActive) q = q.eq('is_active', true);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const createQuest = async ({ name, description, trophy_reward, quest_type, image_url = null, max_completions_per_day = null, category_id = null, created_by = null }) => {
+  try {
+    if (!name || !trophy_reward || !quest_type) throw new Error('Missing fields');
+    const payload = {
+      name,
+      description: description || null,
+      image_url,
+      trophy_reward: Number(trophy_reward) || 0,
+      quest_type,
+      max_completions_per_day,
+      is_active: true,
+      created_by,
+      created_at: new Date().toISOString()
+    };
+    const { data, error } = await supabase
+      .from('quests')
+      .insert([payload])
+      .select('id, name, description, image_url, trophy_reward, quest_type, is_active, created_at')
+      .single();
+    if (error) throw error;
+    return { success: true, data };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+
+// ==================== Story comments and reactions ====================
+export const getStoryComments = async ({ storyId }) => {
+  try {
+    if (!storyId) return [];
+    const { data, error } = await supabase
+      .from('story_comments')
+      .select('id, story_id, user_id, content, created_at')
+      .eq('story_id', storyId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const addStoryComment = async ({ storyId, userId, content }) => {
+  try {
+    if (!storyId || !userId || !content) throw new Error('Missing fields');
+    const { data, error } = await supabase
+      .from('story_comments')
+      .insert([{ story_id: storyId, user_id: userId, content, created_at: new Date().toISOString() }])
+      .select('id, story_id, user_id, content, created_at')
+      .single();
+    if (error) throw error;
+    return { success: true, data };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+
+export const getStoryReactions = async ({ storyId }) => {
+  try {
+    if (!storyId) return [];
+    const { data, error } = await supabase
+      .from('story_reactions')
+      .select('id, story_id, user_id, reaction_type, created_at')
+      .eq('story_id', storyId);
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const likeStory = async ({ storyId, userId }) => {
+  try {
+    if (!storyId || !userId) throw new Error('Missing fields');
+    const { data, error } = await supabase
+      .from('story_reactions')
+      .insert([{ story_id: storyId, user_id: userId, reaction_type: 'like', created_at: new Date().toISOString() }])
+      .select('id')
+      .single();
+    if (error) throw error;
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+
+export const unlikeStory = async ({ storyId, userId }) => {
+  try {
+    if (!storyId || !userId) throw new Error('Missing fields');
+    const { error } = await supabase
+      .from('story_reactions')
+      .delete()
+      .eq('story_id', storyId)
+      .eq('user_id', userId)
+      .eq('reaction_type', 'like');
+    if (error) throw error;
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+
+export const getUserLikesForStories = async ({ userId, storyIds = [] }) => {
+  try {
+    if (!userId || !Array.isArray(storyIds) || storyIds.length === 0) return [];
+    const { data, error } = await supabase
+      .from('story_reactions')
+      .select('story_id')
+      .eq('user_id', userId)
+      .eq('reaction_type', 'like')
+      .in('story_id', storyIds);
+    if (error) throw error;
+    return (data || []).map((r) => r.story_id);
+  } catch (e) {
+    return [];
+  }
+};
+
+// ==================== User stats/badges and streak ====================
+export const getUserBadges = async ({ userId }) => {
+  try {
+    if (!userId) return [];
+    const { data, error } = await supabase
+      .from('user_badges')
+      .select('id, badge_type, badge_name, description, earned_at')
+      .eq('user_id', userId)
+      .order('earned_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const getUserDailyCounts = async ({ userId }) => {
+  try {
+    if (!userId) return { messages: 0, stories: 0 };
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+    const { count: msgCount } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('sender_id', userId)
+      .gte('created_at', startOfDay);
+    const { count: storyCount } = await supabase
+      .from('stories')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', startOfDay);
+    return { messages: msgCount ?? 0, stories: storyCount ?? 0 };
+  } catch (e) {
+    return { messages: 0, stories: 0 };
+  }
+};
+
+export const updateStreakOnActivity = async (userId) => {
+  try {
+    if (!userId) return;
+    const { data: user } = await supabase
+      .from('users')
+      .select('current_streak, last_activity')
+      .eq('id', userId)
+      .single();
+    const now = new Date();
+    const last = user?.last_activity ? new Date(user.last_activity) : null;
+    let days = user?.current_streak ?? 0;
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startPrev = new Date(startToday);
+    startPrev.setDate(startPrev.getDate() - 1);
+    if (!last) {
+      days = 1;
+    } else if (last >= startToday) {
+      // already active today, keep
+    } else if (last >= startPrev && last < startToday) {
+      days = days + 1;
+    } else {
+      days = 1; // reset
+    }
+    await supabase
+      .from('users')
+      .update({ current_streak: days, last_activity: now.toISOString(), updated_at: now.toISOString() })
+      .eq('id', userId);
+  } catch (_) {}
+};
+
+// ==================== Season reset (admin) ====================
+export const resetSeasonTrophies = async ({ adminUsername }) => {
+  try {
+    if (adminUsername !== 'SIMAX') throw new Error('Not authorized');
+    // Fetch users and update seasonal_trophies = round(trophies * 0.6)
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('id, trophies')
+      .limit(1000);
+    if (error) throw error;
+    for (const u of users || []) {
+      const newSeasonal = Math.round((u.trophies ?? 0) * 0.6);
+      await supabase
+        .from('users')
+        .update({ seasonal_trophies: newSeasonal, updated_at: new Date().toISOString() })
+        .eq('id', u.id);
+    }
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };

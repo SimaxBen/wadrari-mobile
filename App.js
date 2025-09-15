@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, StatusBar, Alert, ScrollView, Image } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+import { configureNotifications, notifyNewMessage, notifyStoryPosted } from './src/services/notifications';
 
 // Safe import without any console statements
 let loginWithUsername = async () => { throw new Error('Authentication service unavailable'); };
@@ -150,7 +152,7 @@ const LoginScreen = ({ onLogin }) => {
 
 // Main App Screen Component  
 const MainScreen = ({ userData, onLogout }) => {
-  const [page, setPage] = useState('Chat'); // Chat | Stories | Profile
+  const [page, setPage] = useState('Chat'); // Chat | Stories | Leaderboard | Quests | Profile
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [stories, setStories] = useState([]);
@@ -274,7 +276,7 @@ const MainScreen = ({ userData, onLogout }) => {
 
         {/* Simple top tabs */}
         <View style={styles.tabs}>
-          {['Chat','Stories','Profile'].map((p) => (
+          {['Chat','Stories','Leaderboard','Quests','Profile'].map((p) => (
             <TouchableOpacity key={p} style={[styles.tab, page === p && styles.tabActive]} onPress={() => setPage(p)}>
               <Text style={[styles.tabText, page === p && styles.tabTextActive]}>{p}</Text>
             </TouchableOpacity>
@@ -319,7 +321,9 @@ const MainScreen = ({ userData, onLogout }) => {
             ))}
             <View style={styles.row}>
               <TextInput style={[styles.input, { flex: 1, marginRight: 10 }]} placeholder="Type a message" placeholderTextColor="#888" value={newMessage} onChangeText={setNewMessage} />
-              <TouchableOpacity style={styles.loginButton} onPress={handleSend}><Text style={styles.loginButtonText}>Send</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.loginButton} onPress={async () => { await handleSend(); await notifyNewMessage(userData?.username, newMessage); }}>
+                <Text style={styles.loginButtonText}>Send</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -330,13 +334,38 @@ const MainScreen = ({ userData, onLogout }) => {
             <TextInput style={[styles.input, { width: '100%' }]} placeholder="Story text" placeholderTextColor="#888" value={storyText} onChangeText={setStoryText} />
             <TextInput style={[styles.input, { width: '100%' }]} placeholder="Image URI (optional)" placeholderTextColor="#888" value={storyImageUri} onChangeText={setStoryImageUri} />
             {!!storyImageUri && <Image source={{ uri: storyImageUri }} style={{ width: '100%', height: 160, borderRadius: 8, marginBottom: 10 }} />}
-            <TouchableOpacity style={styles.loginButton} onPress={handleAddStory}><Text style={styles.loginButtonText}>Add Story</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.loginButton} onPress={async () => { await handleAddStory(); await notifyStoryPosted(); }}>
+              <Text style={styles.loginButtonText}>Add Story</Text>
+            </TouchableOpacity>
             {stories.map((s) => (
               <View key={s.id} style={{ marginTop: 10 }}>
                 <Text style={styles.listItem}><Text style={styles.bold}>{s.author}</Text> — {s.content || ''}</Text>
                 {s.media_url ? <Image source={{ uri: s.media_url }} style={{ width: '100%', height: 200, borderRadius: 8 }} /> : null}
               </View>
             ))}
+          </View>
+        )}
+
+        {page === 'Leaderboard' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>🏅 Leaderboard</Text>
+            {leaderboard.map((u, i) => (
+              <Text key={u.id || i} style={styles.listItem}>
+                {i + 1}. <Text style={styles.bold}>{u.username || 'Unknown'}</Text> — {u.trophies ?? 0}🏆 • Season: {u.seasonal_trophies ?? 0}
+              </Text>
+            ))}
+            <Text style={{ color: '#cccccc', marginTop: 10 }}>
+              Current season shown. At season reset, trophies carry 60% to seasonal.
+            </Text>
+          </View>
+        })}
+
+        {page === 'Quests' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>🛠️ Admin Quests (SIMAX)</Text>
+            <Text style={{ color: '#cccccc', marginBottom: 8 }}>Create quests with type: lifetime, daily, or unlimited</Text>
+            {/* Minimal admin form would go here; keeping UI light to avoid clutter. */}
+            <Text style={{ color: '#888' }}>Ask me to enable in-app form, or grant INSERT RLS for SIMAX only.</Text>
           </View>
         )}
 
@@ -351,23 +380,8 @@ const MainScreen = ({ userData, onLogout }) => {
                 </TouchableOpacity>
               </View>
             ))}
-            <Text style={[styles.sectionTitle, { marginTop: 10 }]}>🏆 Leaderboard</Text>
-            {leaderboard.map((u, i) => (
-              <Text key={u.id || i} style={styles.listItem}>
-                {i + 1}. <Text style={styles.bold}>{u.username || 'Unknown'}</Text> — {u.trophies ?? 0}🏆
-              </Text>
-            ))}
           </View>
         )}
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🏆 Leaderboard</Text>
-          {leaderboard.map((u, i) => (
-            <Text key={u.id || i} style={styles.listItem}>
-              {i + 1}. <Text style={styles.bold}>{u.username || 'Unknown'}</Text> — {u.trophies ?? 0}🏆
-            </Text>
-          ))}
-        </View>
 
         <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
           <Text style={styles.logoutButtonText}>Logout</Text>
@@ -388,17 +402,34 @@ const App = () => {
       setIsReady(true);
     }, 100);
 
+    // Load persisted user
+    (async () => {
+      try {
+        const stored = await SecureStore.getItemAsync('user');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.id) setUserData(parsed);
+        }
+      } catch {}
+    })();
+
+    // Configure notifications
+    (async () => { await configureNotifications(); })();
+
     return () => clearTimeout(timer);
   }, []);
 
   const handleLogin = (loginData) => {
     if (loginData && typeof loginData === 'object') {
       setUserData(loginData);
+  // persist
+  try { SecureStore.setItemAsync('user', JSON.stringify(loginData)); } catch {}
     }
   };
 
   const handleLogout = () => {
     setUserData(null);
+  try { SecureStore.deleteItemAsync('user'); } catch {}
   };
 
   if (!isReady) {
