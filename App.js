@@ -358,7 +358,7 @@ const MainScreen = ({ userData, onLogout }) => {
               Current season shown. At season reset, trophies carry 60% to seasonal.
             </Text>
           </View>
-        })}
+  )}
 
         {page === 'Quests' && (
           <View style={styles.section}>
