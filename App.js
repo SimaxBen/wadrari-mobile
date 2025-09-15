@@ -1,35 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput,
-  TouchableOpacity,
-  StyleSheet, 
-  SafeAreaView,
-  StatusBar,
-  Alert,
-  ScrollView
-} from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, StatusBar, Alert, ScrollView, Image } from 'react-native';
 
 // Safe import without any console statements
 let loginWithUsername = async () => { throw new Error('Authentication service unavailable'); };
 let getMessages = async () => [];
+let getMessagesByChat = async () => [];
 let sendMessage = async () => ({ success: false });
 let subscribeToMessages = () => () => {};
 let getStories = async () => [];
+let addStory = async () => ({ success: false });
+let uploadImage = async () => ({ success: false });
 let getLeaderboard = async () => [];
 let getQuestsForUser = async () => [];
+let completeQuest = async () => ({ success: false });
+let getChats = async () => [];
+let createChat = async () => ({ success: false });
 
 try {
   const supabaseModule = require('./src/services/supabase');
   if (supabaseModule) {
     if (supabaseModule.loginWithUsername) loginWithUsername = supabaseModule.loginWithUsername;
-    if (supabaseModule.getMessages) getMessages = supabaseModule.getMessages;
+  if (supabaseModule.getMessages) getMessages = supabaseModule.getMessages;
+  if (supabaseModule.getMessagesByChat) getMessagesByChat = supabaseModule.getMessagesByChat;
     if (supabaseModule.sendMessage) sendMessage = supabaseModule.sendMessage;
     if (supabaseModule.subscribeToMessages) subscribeToMessages = supabaseModule.subscribeToMessages;
     if (supabaseModule.getStories) getStories = supabaseModule.getStories;
+  if (supabaseModule.addStory) addStory = supabaseModule.addStory;
+  if (supabaseModule.uploadImage) uploadImage = supabaseModule.uploadImage;
     if (supabaseModule.getLeaderboard) getLeaderboard = supabaseModule.getLeaderboard;
     if (supabaseModule.getQuestsForUser) getQuestsForUser = supabaseModule.getQuestsForUser;
+  if (supabaseModule.completeQuest) completeQuest = supabaseModule.completeQuest;
+  if (supabaseModule.getChats) getChats = supabaseModule.getChats;
+  if (supabaseModule.createChat) createChat = supabaseModule.createChat;
   }
 } catch (error) {
   // Silent failure
@@ -148,26 +150,36 @@ const LoginScreen = ({ onLogin }) => {
 
 // Main App Screen Component  
 const MainScreen = ({ userData, onLogout }) => {
+  const [page, setPage] = useState('Chat'); // Chat | Stories | Profile
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [stories, setStories] = useState([]);
   const [leaderboard, setLeaderboard] = useState([]);
   const [quests, setQuests] = useState([]);
+  const [chats, setChats] = useState([]);
+  const [activeChat, setActiveChat] = useState(null);
+  const [newChatName, setNewChatName] = useState('');
+  const [storyText, setStoryText] = useState('');
+  const [storyImageUri, setStoryImageUri] = useState('');
 
   useEffect(() => {
     let unsubscribe = null;
     const load = async () => {
       try {
-        const [msgs, sts, lb, qs] = await Promise.all([
+        const [ch, msgs, sts, lb, qs] = await Promise.all([
+          getChats({ includePublic: true }),
           getMessages({ limit: 50 }),
           getStories({ limit: 20 }),
           getLeaderboard({ limit: 20 }),
           getQuestsForUser(userData?.id)
         ]);
+        setChats(Array.isArray(ch) ? ch : []);
         setMessages(Array.isArray(msgs) ? msgs : []);
         setStories(Array.isArray(sts) ? sts : []);
         setLeaderboard(Array.isArray(lb) ? lb : []);
         setQuests(Array.isArray(qs) ? qs : []);
+        // Default to first chat (e.g., General)
+        if (!activeChat && Array.isArray(ch) && ch.length > 0) setActiveChat(ch[0]);
       } catch (_) {}
       try {
         unsubscribe = subscribeToMessages((msg) => {
@@ -196,7 +208,7 @@ const MainScreen = ({ userData, onLogout }) => {
     };
     setMessages((prev) => [...prev, optimistic]);
     try {
-      const res = await sendMessage({ userId: userData?.id, content: text });
+      const res = await sendMessage({ userId: userData?.id, content: text, chatId: activeChat?.id || null });
       if (!res?.success || !res?.data) {
         // rollback optimistic add on failure
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
@@ -208,6 +220,51 @@ const MainScreen = ({ userData, onLogout }) => {
     }
   };
 
+  const handleCreateChat = async () => {
+    const name = (newChatName || '').trim();
+    if (!name) return;
+    const res = await createChat({ name, type: 'group', created_by: userData?.id });
+    if (res?.success && res.data) {
+      setChats((prev) => [...prev, res.data]);
+      setActiveChat(res.data);
+      setNewChatName('');
+    }
+  };
+
+  const handleAddStory = async () => {
+    try {
+      let mediaUrl = null;
+      if (storyImageUri) {
+        const upload = await uploadImage({ bucket: 'story-images', fileUri: storyImageUri, pathPrefix: `${userData?.id}/` });
+        if (!upload?.success) {
+          Alert.alert('Upload failed', upload?.error || '');
+          return;
+        }
+        mediaUrl = upload.url;
+      }
+      const res = await addStory({ userId: userData?.id, content: storyText, mediaUrl });
+      if (res?.success && res.data) {
+        setStories((prev) => [res.data, ...prev]);
+        setStoryText('');
+        setStoryImageUri('');
+      } else if (res?.error) {
+        Alert.alert('Story failed', res.error);
+      }
+    } catch (e) {
+      Alert.alert('Story failed', e.message);
+    }
+  };
+
+  const handleCompleteQuest = async (q) => {
+    const res = await completeQuest({ userId: userData?.id, questId: q.id, reward: q.reward });
+    if (res?.success) {
+      Alert.alert('Quest', 'Completed! Trophies awarded.');
+      setQuests((prev) => prev.map((item) => item.id === q.id ? { ...item, progress: item.target } : item));
+    } else if (res?.error) {
+      Alert.alert('Quest', res.error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
@@ -215,6 +272,16 @@ const MainScreen = ({ userData, onLogout }) => {
         <Text style={styles.title}>⚔️ WADRARI</Text>
         <Text style={styles.subtitle}>Welcome back, {userData?.username || 'User'}!</Text>
 
+        {/* Simple top tabs */}
+        <View style={styles.tabs}>
+          {['Chat','Stories','Profile'].map((p) => (
+            <TouchableOpacity key={p} style={[styles.tab, page === p && styles.tabActive]} onPress={() => setPage(p)}>
+              <Text style={[styles.tabText, page === p && styles.tabTextActive]}>{p}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Profile summary */}
         <View style={styles.profileContainer}>
           <Text style={styles.profileTitle}>Profile Information</Text>
           <Text style={styles.profileItem}>ID: {userData?.id || 'N/A'}</Text>
@@ -226,44 +293,72 @@ const MainScreen = ({ userData, onLogout }) => {
           <Text style={styles.profileItem}>📚 Stories: {userData?.total_stories || 0}</Text>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>💬 Chat</Text>
-          {messages.map((m) => (
-            <Text key={m.id} style={styles.listItem}>
-              <Text style={styles.bold}>{m.username || m.profiles?.username || 'User'}:</Text> {m.message}
-            </Text>
-          ))}
-          <View style={styles.row}>
-            <TextInput
-              style={[styles.input, { flex: 1, marginRight: 10 }]}
-              placeholder="Type a message"
-              placeholderTextColor="#888"
-              value={newMessage}
-              onChangeText={setNewMessage}
-            />
-            <TouchableOpacity style={styles.loginButton} onPress={handleSend}>
-              <Text style={styles.loginButtonText}>Send</Text>
-            </TouchableOpacity>
+        {page === 'Chat' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>💬 Chats</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+              {chats.map((c) => (
+                <TouchableOpacity key={c.id} style={[styles.pill, activeChat?.id === c.id && styles.pillActive]} onPress={async () => {
+                  setActiveChat(c);
+                  const list = await getMessagesByChat({ chatId: c.id, limit: 100 });
+                  setMessages(Array.isArray(list) ? list : []);
+                }}>
+                  <Text style={[styles.pillText, activeChat?.id === c.id && styles.pillTextActive]}>{c.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <View style={styles.row}>
+              <TextInput style={[styles.input, { flex: 1, marginRight: 10 }]} placeholder="New group name" placeholderTextColor="#888" value={newChatName} onChangeText={setNewChatName} />
+              <TouchableOpacity style={styles.loginButton} onPress={handleCreateChat}><Text style={styles.loginButtonText}>Create</Text></TouchableOpacity>
+            </View>
+            <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Messages</Text>
+            {messages.map((m) => (
+              <Text key={m.id} style={styles.listItem}>
+                <Text style={styles.bold}>{m.username || 'User'}:</Text> {m.message}
+              </Text>
+            ))}
+            <View style={styles.row}>
+              <TextInput style={[styles.input, { flex: 1, marginRight: 10 }]} placeholder="Type a message" placeholderTextColor="#888" value={newMessage} onChangeText={setNewMessage} />
+              <TouchableOpacity style={styles.loginButton} onPress={handleSend}><Text style={styles.loginButtonText}>Send</Text></TouchableOpacity>
+            </View>
           </View>
-        </View>
+        )}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📚 Stories</Text>
-          {stories.map((s) => (
-            <Text key={s.id} style={styles.listItem}>
-              <Text style={styles.bold}>{s.author}:</Text> {s.content}
-            </Text>
-          ))}
-        </View>
+        {page === 'Stories' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>📚 Stories</Text>
+            <TextInput style={[styles.input, { width: '100%' }]} placeholder="Story text" placeholderTextColor="#888" value={storyText} onChangeText={setStoryText} />
+            <TextInput style={[styles.input, { width: '100%' }]} placeholder="Image URI (optional)" placeholderTextColor="#888" value={storyImageUri} onChangeText={setStoryImageUri} />
+            {!!storyImageUri && <Image source={{ uri: storyImageUri }} style={{ width: '100%', height: 160, borderRadius: 8, marginBottom: 10 }} />}
+            <TouchableOpacity style={styles.loginButton} onPress={handleAddStory}><Text style={styles.loginButtonText}>Add Story</Text></TouchableOpacity>
+            {stories.map((s) => (
+              <View key={s.id} style={{ marginTop: 10 }}>
+                <Text style={styles.listItem}><Text style={styles.bold}>{s.author}</Text> — {s.content || ''}</Text>
+                {s.media_url ? <Image source={{ uri: s.media_url }} style={{ width: '100%', height: 200, borderRadius: 8 }} /> : null}
+              </View>
+            ))}
+          </View>
+        )}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🎯 Quests</Text>
-          {quests.map((q) => (
-            <Text key={q.id} style={styles.listItem}>
-              <Text style={styles.bold}>{q.title}</Text> — {q.description} • {q.progress}/{q.target} (+{q.reward}🏆)
-            </Text>
-          ))}
-        </View>
+        {page === 'Profile' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>🎯 Daily Quests</Text>
+            {quests.map((q) => (
+              <View key={q.id} style={{ marginBottom: 10 }}>
+                <Text style={styles.listItem}><Text style={styles.bold}>{q.title}</Text> — {q.description} • {q.progress}/{q.target} (+{q.reward}🏆)</Text>
+                <TouchableOpacity disabled={q.progress >= q.target} style={[styles.loginButton, q.progress >= q.target && { opacity: 0.6 }]} onPress={() => handleCompleteQuest(q)}>
+                  <Text style={styles.loginButtonText}>{q.progress >= q.target ? 'Completed' : 'Complete'}</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            <Text style={[styles.sectionTitle, { marginTop: 10 }]}>🏆 Leaderboard</Text>
+            {leaderboard.map((u, i) => (
+              <Text key={u.id || i} style={styles.listItem}>
+                {i + 1}. <Text style={styles.bold}>{u.username || 'Unknown'}</Text> — {u.trophies ?? 0}🏆
+              </Text>
+            ))}
+          </View>
+        )}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>🏆 Leaderboard</Text>
@@ -447,6 +542,22 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textAlign: 'center',
   },
+  tabs: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 10,
+  },
+  tab: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: '#2a2a4e',
+  },
+  tabActive: {
+    backgroundColor: '#4a90e2',
+  },
+  tabText: { color: '#cccccc' },
+  tabTextActive: { color: '#ffffff', fontWeight: 'bold' },
   section: {
     marginTop: 20,
     padding: 20,
@@ -454,6 +565,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     width: '100%',
   },
+  pill: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#2a2a4e', marginRight: 8 },
+  pillActive: { backgroundColor: '#4a90e2' },
+  pillText: { color: '#cccccc' },
+  pillTextActive: { color: '#ffffff', fontWeight: 'bold' },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',

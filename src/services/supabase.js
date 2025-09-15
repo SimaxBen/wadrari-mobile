@@ -296,3 +296,142 @@ export const getQuestsForUser = async (userId) => {
     ];
   }
 };
+
+// ==================== Chats / Groups ====================
+export const getChats = async ({ includePublic = true } = {}) => {
+  try {
+    let query = supabase
+      .from('chats')
+      .select('id, name, type, image_url, created_at')
+      .order('created_at', { ascending: true });
+    if (!includePublic) query = query.neq('type', 'public');
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const createChat = async ({ name, type = 'group', created_by = null, image_url = null }) => {
+  try {
+    if (!name) throw new Error('Name required');
+    const payload = { name, type, created_at: new Date().toISOString() };
+    if (created_by) payload.created_by = created_by;
+    if (image_url) payload.image_url = image_url;
+    const { data, error } = await supabase
+      .from('chats')
+      .insert([payload])
+      .select('id, name, type, image_url, created_at')
+      .single();
+    if (error) throw error;
+    return { success: true, data };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+
+export const getMessagesByChat = async ({ chatId, limit = 100 }) => {
+  try {
+    if (!chatId) return [];
+    const { data, error } = await supabase
+      .from('messages')
+      .select('id, content, sender_id, created_at, chat_id')
+      .eq('chat_id', chatId)
+      .order('created_at', { ascending: true })
+      .limit(limit);
+    if (error) throw error;
+    return (data || []).map(row => ({
+      id: row.id,
+      message: row.content,
+      user_id: row.sender_id,
+      chat_id: row.chat_id,
+      created_at: row.created_at
+    }));
+  } catch (e) {
+    return [];
+  }
+};
+
+// ==================== Storage and Stories ====================
+export const uploadImage = async ({ bucket, fileUri, pathPrefix = '' }) => {
+  try {
+    if (!bucket || !fileUri) throw new Error('bucket and fileUri required');
+    const res = await fetch(fileUri);
+    const blob = await res.blob();
+    const ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
+    const filename = `${pathPrefix}${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { data, error } = await supabase.storage.from(bucket).upload(filename, blob, { contentType: blob.type || 'image/jpeg', upsert: false });
+    if (error) throw error;
+    const { data: pub } = supabase.storage.from(bucket).getPublicUrl(data.path);
+    return { success: true, url: pub.publicUrl };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+
+export const addStory = async ({ userId, content, mediaUrl = null, type = null }) => {
+  try {
+    if (!userId) throw new Error('userId required');
+    const payload = {
+      user_id: userId,
+      content: content || null,
+      media_url: mediaUrl || null,
+      type: type || (mediaUrl ? 'image' : 'text'),
+      created_at: new Date().toISOString()
+    };
+    const { data, error } = await supabase
+      .from('stories')
+      .insert([payload])
+      .select('id, user_id, content, media_url, created_at')
+      .single();
+    if (error) throw error;
+    return { success: true, data };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+
+// ==================== Quest completion ====================
+export const completeQuest = async ({ userId, questId, reward = 0 }) => {
+  try {
+    if (!userId || !questId) throw new Error('userId and questId required');
+    // Update trophies on users (RLS allows public update per policies)
+    const { data: user } = await supabase
+      .from('users')
+      .select('trophies')
+      .eq('id', userId)
+      .single();
+    const newTrophies = (user?.trophies ?? 0) + (reward || 0);
+    await supabase
+      .from('users')
+      .update({ trophies: newTrophies, updated_at: new Date().toISOString() })
+      .eq('id', userId);
+
+    // Best-effort daily_activities bookkeeping (RLS permissive ALL)
+    const today = new Date();
+    const date = today.toISOString().slice(0, 10);
+    try {
+      const { data: existing } = await supabase
+        .from('daily_activities')
+        .select('id, base_trophies_earned, bonus_trophies_earned')
+        .eq('user_id', userId)
+        .eq('activity_date', date)
+        .maybeSingle();
+      if (existing?.id) {
+        await supabase
+          .from('daily_activities')
+          .update({ base_trophies_earned: (existing.base_trophies_earned ?? 0) + (reward || 0), updated_at: new Date().toISOString() })
+          .eq('id', existing.id);
+      } else {
+        await supabase
+          .from('daily_activities')
+          .insert([{ user_id: userId, activity_date: date, base_trophies_earned: reward || 0, created_at: new Date().toISOString() }]);
+      }
+    } catch (_) {}
+
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
