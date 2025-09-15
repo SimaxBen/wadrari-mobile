@@ -42,7 +42,7 @@ const MainTabs = () => (
         borderTopColor: '#4a90e2',
       },
       tabBarActiveTintColor: '#4a90e2',
-      tabBarInactiveTintColor: '#gray',
+  tabBarInactiveTintColor: '#888888',
     }}
   >
     <Tab.Screen 

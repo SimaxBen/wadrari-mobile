@@ -521,8 +521,8 @@
   },
   {
     "table_name": "users",
-    "column_name": "password_hash",
-    "data_type": "character varying"
+    "column_name": "password",
+    "data_type": "text"
   },
   {
     "table_name": "users",
