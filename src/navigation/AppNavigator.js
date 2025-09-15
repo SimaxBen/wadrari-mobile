@@ -50,7 +50,7 @@ const MainTabs = () => (
       component={ChatScreen}
       options={{
         tabBarLabel: 'Chat',
-        // You can add tab bar icons here later
+        tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 16 }}>💬</Text>
       }}
     />
     <Tab.Screen 
@@ -58,6 +58,7 @@ const MainTabs = () => (
       component={StoriesScreen}
       options={{
         tabBarLabel: 'Stories',
+        tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 16 }}>📚</Text>
       }}
     />
     <Tab.Screen 
@@ -65,6 +66,7 @@ const MainTabs = () => (
       component={QuestsScreen}
       options={{
         tabBarLabel: 'Quests',
+        tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 16 }}>🎯</Text>
       }}
     />
     <Tab.Screen 
@@ -72,6 +74,7 @@ const MainTabs = () => (
       component={LeaderboardScreen}
       options={{
         tabBarLabel: 'Leaderboard',
+        tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 16 }}>🏆</Text>
       }}
     />
     <Tab.Screen 
@@ -79,6 +82,7 @@ const MainTabs = () => (
       component={ProfileScreen}
       options={{
         tabBarLabel: 'Profile',
+        tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 16 }}>👤</Text>
       }}
     />
   </Tab.Navigator>
