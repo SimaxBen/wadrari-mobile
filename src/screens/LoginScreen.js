@@ -11,16 +11,16 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { useAuth } from '../contexts/AuthContext';
-import { useTheme } from '../contexts/ThemeContext';
+import { useMCPAuth } from '../context/MCPAuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 const LoginScreen = ({ navigation }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
-  const { login, error } = useAuth();
-  const { colors } = useTheme();
+  const { login, error } = useMCPAuth();
+  const { theme } = useTheme();
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) {
@@ -42,7 +42,7 @@ const LoginScreen = ({ navigation }) => {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.primary,
+  backgroundColor: theme.colors.primary,
     },
     keyboardView: {
       flex: 1,
@@ -91,7 +91,7 @@ const LoginScreen = ({ navigation }) => {
       marginBottom: 15,
     },
     buttonText: {
-      color: colors.primary,
+  color: theme.colors.primary,
       fontSize: 18,
       fontWeight: 'bold',
       textAlign: 'center',
@@ -116,7 +116,7 @@ const LoginScreen = ({ navigation }) => {
       alignItems: 'center',
     },
     loadingText: {
-      color: colors.primary,
+  color: theme.colors.primary,
       fontSize: 16,
       fontWeight: 'bold',
       marginLeft: 10,
@@ -130,7 +130,7 @@ const LoginScreen = ({ navigation }) => {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={styles.content}>
-          <Text style={styles.logo}>⚡ WADRARI</Text>
+          <Text style={styles.logo}>⚡ WADRARI 1</Text>
           <Text style={styles.subtitle}>Welcome back, warrior!</Text>
 
           <View style={styles.inputContainer}>
@@ -169,7 +169,7 @@ const LoginScreen = ({ navigation }) => {
           >
             {isLoading ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator color={colors.primary} />
+                <ActivityIndicator color={theme.colors.primary} />
                 <Text style={styles.loadingText}>Logging in...</Text>
               </View>
             ) : (

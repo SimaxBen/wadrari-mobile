@@ -30,19 +30,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// Password hashing function - matches web implementation
-const hashPassword = (password) => {
-  try {
-    // Use the same hashing as web: btoa(unescape(encodeURIComponent(password + 'salt')))
-    // For React Native, we need to simulate this with base64Encode
-    const saltedPassword = password + 'salt';
-    const encoded = encodeURIComponent(saltedPassword);
-    const unescaped = decodeURIComponent(encoded); // This simulates unescape(encodeURIComponent())
-    return base64Encode(unescaped);
-  } catch (error) {
-    throw new Error('Failed to hash password');
-  }
-};
+// Plain-text mode: do not hash passwords in mobile app (per project decision)
 
 // Login with username and password
 export const loginWithUsername = async (username, password) => {
@@ -50,15 +38,13 @@ export const loginWithUsername = async (username, password) => {
     if (!username || !password) {
       throw new Error('Username and password are required');
     }
-
-    const hashedPassword = hashPassword(password);
     
     // Query users table directly
     const { data: user, error } = await supabase
       .from('users')
       .select('*')
       .eq('username', username.trim())
-      .eq('password_hash', hashedPassword)
+  .eq('password', password)
       .single();
 
     if (error) {
