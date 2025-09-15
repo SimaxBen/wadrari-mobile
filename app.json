@@ -29,6 +29,17 @@
         "android.permission.INTERNET"
       ]
     },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#1a1a2e",
+          "mode": "production",
+          "androidMode": "default"
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     }

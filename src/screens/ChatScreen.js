@@ -13,6 +13,7 @@ import {
 import { useMCPAuth } from '../context/MCPAuthContext';
 import { useTheme } from '../context/ThemeContext';
 import mcpClient from '../services/mcpClient';
+import { notifyNewMessage } from '../services/notifications';
 
 const ChatScreen = () => {
   const [messages, setMessages] = useState([]);
@@ -50,6 +51,13 @@ const ChatScreen = () => {
       console.log('New message received:', payload);
       const newMessage = payload.new;
       setMessages(prev => [...prev, newMessage]);
+      // Notify if it's not our own message
+      if (newMessage?.user_id && newMessage.user_id !== user.id) {
+        notifyNewMessage({
+          fromUsername: newMessage.profiles?.username || newMessage.username,
+          text: newMessage.message,
+        });
+      }
       // Auto scroll to bottom
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });

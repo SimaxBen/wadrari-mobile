@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import mcpClient from '../services/mcpClient';
+import { notifyNewStory } from '../services/notifications';
 
 const StoriesScreen = () => {
   const [stories, setStories] = useState([]);
@@ -23,6 +24,11 @@ const StoriesScreen = () => {
       const result = await mcpClient.callTool('getStories', {});
       if (result.success) {
         setStories(result.data || []);
+        // Simple notify of latest story (one-shot) to verify notifications work
+        if ((result.data || []).length > 0) {
+          const latest = result.data[0];
+          notifyNewStory({ author: latest.author, title: latest.title });
+        }
       }
     } catch (error) {
       console.error('Error loading stories:', error);

@@ -95,7 +95,7 @@ const LoginScreen = ({ navigation }) => {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <Text style={styles.title}>Wadrari</Text>
+  <Text style={styles.title}>Wadrari 1</Text>
         <Text style={styles.subtitle}>Welcome back! Please sign in to continue.</Text>
         
         <TextInput
