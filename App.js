@@ -446,21 +446,24 @@ const MainScreen = ({ userData, onLogout }) => {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>💬 Groups</Text>
             {!activeChat && (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              <View style={styles.groupsContainer}>
                 {chats.map((c) => (
-                  <TouchableOpacity key={c.id} style={styles.groupCard} onPress={async () => {
+                  <TouchableOpacity key={c.id} style={styles.groupCardNew} onPress={async () => {
                     setActiveChat(c);
                     const list = await getMessagesByChat({ chatId: c.id, limit: 100 });
                     setMessages(Array.isArray(list) ? list : []);
                   }}>
-                    <View style={styles.groupAvatar}>
+                    <View style={styles.groupAvatarNew}>
                       {c.image_url ? (
-                        <Image source={{ uri: c.image_url }} style={styles.groupAvatarImg} />
+                        <Image source={{ uri: c.image_url }} style={styles.groupAvatarImgNew} />
                       ) : (
-                        <Text style={styles.groupAvatarText}>{(c.name || 'G')[0]}</Text>
+                        <Text style={styles.groupAvatarTextNew}>{(c.name || 'G')[0]}</Text>
                       )}
                     </View>
-                    <Text style={styles.groupName}>{c.name}</Text>
+                    <View style={styles.groupInfoNew}>
+                      <Text style={styles.groupNameNew}>{c.name}</Text>
+                      <Text style={styles.groupSubtitle}>Tap to join chat</Text>
+                    </View>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -525,275 +528,364 @@ const MainScreen = ({ userData, onLogout }) => {
         {page === 'Stories' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>📚 Stories</Text>
-            <TextInput style={[styles.input, { width: '100%' }]} placeholder="Story text" placeholderTextColor="#888" value={storyText} onChangeText={setStoryText} />
-            <View style={styles.row}>
-              <TouchableOpacity style={[styles.loginButton, { flex: 1, marginRight: 10 }]} onPress={async () => {
-                const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
-                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-                if (!result.canceled && result.assets?.[0]?.uri) {
-                  setStoryImageUri(result.assets[0].uri);
-                  setStoryImageBase64(result.assets[0].base64 || null);
-                }
-              }}>
-                <Text style={styles.loginButtonText}>Pick Image</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.loginButton, { flex: 1 }]} onPress={async () => {
-                const cap = await ImagePicker.requestCameraPermissionsAsync();
-                if (cap.status !== 'granted') { Alert.alert('Permission', 'Camera required'); return; }
-                const result = await ImagePicker.launchCameraAsync({ quality: 0.8, base64: true });
-                if (!result.canceled && result.assets?.[0]?.uri) {
-                  setStoryImageUri(result.assets[0].uri);
-                  setStoryImageBase64(result.assets[0].base64 || null);
-                }
-              }}>
-                <Text style={styles.loginButtonText}>Camera</Text>
+            
+            {/* Add Story Form at Top */}
+            <View style={styles.addStoryContainer}>
+              <TextInput style={[styles.input, { width: '100%', marginBottom: 10 }]} placeholder="What's your story today?" placeholderTextColor="#888" value={storyText} onChangeText={setStoryText} multiline />
+              <View style={styles.row}>
+                <TouchableOpacity style={[styles.storyActionButton, { flex: 1, marginRight: 5 }]} onPress={async () => {
+                  const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                  if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
+                  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
+                  if (!result.canceled && result.assets?.[0]?.uri) {
+                    setStoryImageUri(result.assets[0].uri);
+                    setStoryImageBase64(result.assets[0].base64 || null);
+                  }
+                }}>
+                  <Text style={styles.storyActionText}>📷 Photo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.storyActionButton, { flex: 1, marginLeft: 5 }]} onPress={async () => {
+                  const cap = await ImagePicker.requestCameraPermissionsAsync();
+                  if (cap.status !== 'granted') { Alert.alert('Permission', 'Camera required'); return; }
+                  const result = await ImagePicker.launchCameraAsync({ quality: 0.8, base64: true });
+                  if (!result.canceled && result.assets?.[0]?.uri) {
+                    setStoryImageUri(result.assets[0].uri);
+                    setStoryImageBase64(result.assets[0].base64 || null);
+                  }
+                }}>
+                  <Text style={styles.storyActionText}>📸 Camera</Text>
+                </TouchableOpacity>
+              </View>
+              {!!storyImageUri && <Image source={{ uri: storyImageUri }} style={styles.previewImage} />}
+              <TouchableOpacity style={styles.publishButton} onPress={async () => { await handleAddStory(); await notifyStoryPosted(); }}>
+                <Text style={styles.publishButtonText}>✨ Publish Story</Text>
               </TouchableOpacity>
             </View>
-            {!!storyImageUri && <Image source={{ uri: storyImageUri }} style={{ width: '100%', height: 160, borderRadius: 8, marginVertical: 10 }} />}
-            <TouchableOpacity style={styles.loginButton} onPress={async () => { await handleAddStory(); await notifyStoryPosted(); }}>
-              <Text style={styles.loginButtonText}>Add Story</Text>
-            </TouchableOpacity>
-            {stories.filter((s) => !s.expires_at || new Date(s.expires_at) > new Date()).map((s) => (
-              <View key={s.id} style={{ marginTop: 10 }}>
-                <Text style={styles.listItem}><Text style={styles.bold}>{s.author}</Text> — {s.content || ''}</Text>
-                {s.media_url ? <Image source={{ uri: s.media_url }} style={{ width: '100%', height: 200, borderRadius: 8 }} /> : null}
-                <View style={[styles.row, { marginTop: 6, justifyContent: 'space-between' }]}>
-                  <TouchableOpacity onPress={() => toggleLike(s.id)} style={[styles.pill, myLikedStories.includes(s.id) && styles.pillActive]}>
-                    <Text style={[styles.pillText, myLikedStories.includes(s.id) && styles.pillTextActive]}>{myLikedStories.includes(s.id) ? '♥ Liked' : '♡ Like'}{typeof storyLikes[s.id] === 'number' ? ` (${storyLikes[s.id]})` : ''}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => loadComments(s.id)} style={styles.pill}>
-                    <Text style={styles.pillText}>💬 Comments</Text>
-                  </TouchableOpacity>
-                </View>
-        {(storyComments[s.id] || []).map((c) => (
-                  <Text key={c.id} style={[styles.listItem, { marginLeft: 10 }]}>
-          <Text style={styles.bold}>{c.username || c.user_id?.slice(0, 4) || 'User'}</Text>: {c.content}
-                  </Text>
-                ))}
-                <View style={styles.row}>
-                  <TextInput style={[styles.input, { flex: 1, marginRight: 10 }]} placeholder="Add a comment" placeholderTextColor="#888" value={newCommentText} onChangeText={setNewCommentText} />
-                  <TouchableOpacity style={styles.loginButton} onPress={() => sendComment(s.id)}>
-                    <Text style={styles.loginButtonText}>Post</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
+
+            {/* Stories Grid */}
+            <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Recent Stories</Text>
+            <View style={styles.storiesGrid}>
+              {stories.filter((s) => !s.expires_at || new Date(s.expires_at) > new Date()).map((s) => (
+                <TouchableOpacity key={s.id} style={styles.storyCard} onPress={() => {
+                  // TODO: Open story detail modal
+                }}>
+                  {s.media_url ? (
+                    <Image source={{ uri: s.media_url }} style={styles.storyImage} />
+                  ) : (
+                    <View style={styles.storyPlaceholder}>
+                      <Text style={styles.storyPlaceholderText}>📝</Text>
+                    </View>
+                  )}
+                  <View style={styles.storyOverlay}>
+                    <Text style={styles.storyAuthor}>{s.author}</Text>
+                    <Text style={styles.storyPreview} numberOfLines={2}>{s.content || ''}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         )}
 
         {page === 'Leaderboard' && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🏅 Leaderboard</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+            <View style={{ alignItems: 'center', marginBottom: 20 }}>
+              <Text style={styles.title}>� {seasonName}</Text>
+              <Text style={{ color: '#ccc' }}>60% carryover enabled</Text>
+            </View>
+            
+            <Text style={styles.sectionTitle}>🏅 Top Players</Text>
+            <View style={styles.leaderboardContainer}>
               {leaderboard.map((u, i) => (
-                <View key={u.id || i} style={styles.userCard}>
-                  <View style={styles.userAvatar}>
-                    {u.avatar_url ? <Image source={{ uri: u.avatar_url }} style={styles.userAvatarImg} /> : <Text style={styles.userAvatarText}>{(u.username || 'U')[0]}</Text>}
+                <View key={u.id || i} style={styles.leaderboardItem}>
+                  <View style={styles.rankBadge}>
+                    <Text style={styles.rankText}>#{i + 1}</Text>
                   </View>
-                  <Text style={styles.bold}>{i + 1}. {u.username || 'Unknown'}</Text>
-                  <Text style={{ color: '#ccc' }}>{u.trophies ?? 0}🏆</Text>
+                  <View style={styles.userAvatarLeaderboard}>
+                    {u.avatar_url ? (
+                      <Image source={{ uri: u.avatar_url }} style={styles.userAvatarImgLeaderboard} />
+                    ) : (
+                      <Text style={styles.userAvatarTextLeaderboard}>{(u.username || 'U')[0]}</Text>
+                    )}
+                  </View>
+                  <View style={styles.leaderboardInfo}>
+                    <Text style={styles.leaderboardName}>{u.username || 'Unknown'}</Text>
+                    <Text style={styles.leaderboardTrophies}>{u.trophies ?? 0} 🏆</Text>
+                  </View>
+                  {i === 0 && <Text style={styles.crownEmoji}>👑</Text>}
                 </View>
               ))}
             </View>
           </View>
-  )}
+        )}
 
         {page === 'Quests' && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Available Quests</Text>
-            <View style={{ marginBottom: 10 }}>
-              <TouchableOpacity style={[styles.pill, { alignSelf: 'flex-start', marginBottom: 10 }]} onPress={async () => {
-                const list = await getAllQuests({ onlyActive: true });
-                setAllQuests(Array.isArray(list) ? list : []);
-              }}>
-                <Text style={styles.pillText}>Refresh</Text>
-              </TouchableOpacity>
-              {allQuests.map((q) => (
-                <View key={q.id} style={{ marginBottom: 8 }}>
-                  <Text style={styles.listItem}><Text style={styles.bold}>{q.name}</Text> — {q.description || ''} (+{q.trophy_reward || 0}🏆)</Text>
-                  {q.image_url ? (
-                    <Image source={{ uri: q.image_url }} style={{ width: '100%', height: 160, borderRadius: 8, marginTop: 6 }} />
-                  ) : null}
-                </View>
-              ))}
-            </View>
-            {/* Admin form for SIMAX */}
+            <Text style={styles.sectionTitle}>🎯 Quests & Challenges</Text>
+            
+            {/* Admin Quest Creation at Top */}
             {userData?.username === 'SIMAX' && (
-              <View>
-                <Text style={styles.sectionTitle}>Create Quest</Text>
-                <TextInput style={[styles.input, { width: '100%' }]} placeholder="Name" placeholderTextColor="#888" value={questForm.name} onChangeText={(t) => setQuestForm({ ...questForm, name: t })} />
-                <TextInput style={[styles.input, { width: '100%' }]} placeholder="Description" placeholderTextColor="#888" value={questForm.description} onChangeText={(t) => setQuestForm({ ...questForm, description: t })} />
-                <View style={styles.row}>
-                  <TouchableOpacity style={[styles.loginButton, { flex: 1 }]} onPress={async () => {
-                    const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                    if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
-                    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-                    const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
-                    if (asset) { setQuestImageUri(asset.uri); setQuestImageBase64(asset.base64 || null); }
+              <View style={styles.adminSection}>
+                <Text style={styles.adminTitle}>➕ Create New Quest</Text>
+                <View style={styles.questForm}>
+                  <TextInput style={[styles.input, { width: '100%', marginBottom: 10 }]} placeholder="Quest Name" placeholderTextColor="#888" value={questForm.name} onChangeText={(t) => setQuestForm({ ...questForm, name: t })} />
+                  <TextInput style={[styles.input, { width: '100%', marginBottom: 10 }]} placeholder="Quest Description" placeholderTextColor="#888" value={questForm.description} onChangeText={(t) => setQuestForm({ ...questForm, description: t })} multiline />
+                  <View style={styles.row}>
+                    <TouchableOpacity style={[styles.questFormButton, { flex: 1 }]} onPress={async () => {
+                      const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                      if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
+                      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
+                      const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
+                      if (asset) { setQuestImageUri(asset.uri); setQuestImageBase64(asset.base64 || null); }
+                    }}>
+                      <Text style={styles.questFormButtonText}>🖼️ Add Image</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {!!questImageUri && <Image source={{ uri: questImageUri }} style={styles.questPreviewImage} />}
+                  <View style={[styles.row, { marginBottom: 10, justifyContent: 'space-around' }]}> 
+                    {['daily','weekly','one_time'].map((t) => (
+                      <TouchableOpacity key={t} style={[styles.typeButton, (questForm.type===t) && styles.typeButtonActive]} onPress={() => setQuestForm({ ...questForm, type: t })}>
+                        <Text style={[styles.typeButtonText, (questForm.type===t) && styles.typeButtonTextActive]}>{t}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <TextInput style={[styles.input, { width: '100%', marginBottom: 10 }]} placeholder="Trophy Reward" placeholderTextColor="#888" keyboardType="numeric" value={questForm.reward} onChangeText={(t) => setQuestForm({ ...questForm, reward: t })} />
+                  <TouchableOpacity style={styles.createQuestButton} onPress={async () => {
+                    const name = (questForm.name || '').trim();
+                    if (!name) return; const reward = parseInt(questForm.reward || '0', 10) || 0;
+                    try {
+                      let imageUrl = null;
+                      if (questImageUri) {
+                        let uploaded = await uploadImage({ bucket: 'quest-images', fileUri: questImageUri, pathPrefix: `quests/${userData?.id || 'admin'}/` });
+                        if (!uploaded?.success && questImageBase64) {
+                          uploaded = await uploadImage({ bucket: 'quest-images', base64: questImageBase64, mimeType: 'image/jpeg', pathPrefix: `quests/${userData?.id || 'admin'}/` });
+                        }
+                        if (uploaded?.success) imageUrl = uploaded.url; else {
+                          console.error('Quest image upload error:', uploaded?.error);
+                          Alert.alert('Quest', uploaded?.error ? `Error: ${uploaded.error}` : 'Image upload failed. Please check your network and try again.');
+                          return;
+                        }
+                      }
+                      const res = await (createQuest ? createQuest({ name, description: questForm.description || null, image_url: imageUrl, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
+                      if (res?.success) {
+                        Alert.alert('Quest', 'Created');
+                        setQuestForm({ name: '', description: '', reward: '10', type: 'daily' });
+                        setQuestImageUri('');
+                        setQuestImageBase64(null);
+                        try {
+                          const list = await getAllQuests({ onlyActive: true });
+                          setAllQuests(Array.isArray(list) ? list : []);
+                        } catch (_) {}
+                      } else {
+                        console.error('Create quest error:', res?.error);
+                        Alert.alert('Quest', res?.error ? `Error: ${res.error}` : 'Failed');
+                      }
+                    } catch (e) {
+                      console.error('Create quest exception:', e);
+                      Alert.alert('Quest', e.message ? `Exception: ${e.message}` : 'Unknown exception.');
+                    }
                   }}>
-                    <Text style={styles.loginButtonText}>Pick Quest Image</Text>
+                    <Text style={styles.createQuestButtonText}>🚀 Create Quest</Text>
                   </TouchableOpacity>
                 </View>
-                {!!questImageUri && <Image source={{ uri: questImageUri }} style={{ width: '100%', height: 140, borderRadius: 8, marginVertical: 10 }} />}
-                <View style={[styles.row, { marginBottom: 10 }]}> 
-                  {['daily','weekly','one_time'].map((t) => (
-                    <TouchableOpacity key={t} style={[styles.pill, (questForm.type===t) && styles.pillActive]} onPress={() => setQuestForm({ ...questForm, type: t })}>
-                      <Text style={[styles.pillText, (questForm.type===t) && styles.pillTextActive]}>{t}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                <TextInput style={[styles.input, { width: '100%' }]} placeholder="Reward (trophies)" placeholderTextColor="#888" keyboardType="numeric" value={questForm.reward} onChangeText={(t) => setQuestForm({ ...questForm, reward: t })} />
-                <TouchableOpacity style={styles.loginButton} onPress={async () => {
-                  const name = (questForm.name || '').trim();
-                  if (!name) return; const reward = parseInt(questForm.reward || '0', 10) || 0;
-                  try {
-                    let imageUrl = null;
-                    if (questImageUri) {
-                      let uploaded = await uploadImage({ bucket: 'quest-images', fileUri: questImageUri, pathPrefix: `quests/${userData?.id || 'admin'}/` });
-                      if (!uploaded?.success && questImageBase64) {
-                        uploaded = await uploadImage({ bucket: 'quest-images', base64: questImageBase64, mimeType: 'image/jpeg', pathPrefix: `quests/${userData?.id || 'admin'}/` });
-                      }
-                      if (uploaded?.success) imageUrl = uploaded.url; else {
-                        console.error('Quest image upload error:', uploaded?.error);
-                        Alert.alert('Quest', uploaded?.error ? `Error: ${uploaded.error}` : 'Image upload failed. Please check your network and try again.');
-                        return;
-                      }
-                    }
-                    const res = await (createQuest ? createQuest({ name, description: questForm.description || null, image_url: imageUrl, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
-                    if (res?.success) {
-                      Alert.alert('Quest', 'Created');
-                      setQuestForm({ name: '', description: '', reward: '10', type: 'daily' });
-                      setQuestImageUri('');
-                      setQuestImageBase64(null);
-                      try {
-                        const list = await getAllQuests({ onlyActive: true });
-                        setAllQuests(Array.isArray(list) ? list : []);
-                      } catch (_) {}
-                    } else {
-                      console.error('Create quest error:', res?.error);
-                      Alert.alert('Quest', res?.error ? `Error: ${res.error}` : 'Failed');
-                    }
-                  } catch (e) {
-                    console.error('Create quest exception:', e);
-                    Alert.alert('Quest', e.message ? `Exception: ${e.message}` : 'Unknown exception.');
-                  }
-                }}>
-                  <Text style={styles.loginButtonText}>Add</Text>
-                </TouchableOpacity>
               </View>
             )}
+
+            {/* Available Quests List */}
+            <View style={styles.questsListContainer}>
+              <View style={styles.questsHeader}>
+                <Text style={styles.questsListTitle}>Available Quests</Text>
+                <TouchableOpacity style={styles.refreshButton} onPress={async () => {
+                  const list = await getAllQuests({ onlyActive: true });
+                  setAllQuests(Array.isArray(list) ? list : []);
+                }}>
+                  <Text style={styles.refreshButtonText}>🔄 Refresh</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.questsList}>
+                {allQuests.map((q) => (
+                  <TouchableOpacity key={q.id} style={styles.questCard} onPress={() => {
+                    // TODO: Open quest detail modal
+                  }}>
+                    {q.image_url ? (
+                      <Image source={{ uri: q.image_url }} style={styles.questCardImage} />
+                    ) : (
+                      <View style={styles.questCardPlaceholder}>
+                        <Text style={styles.questCardPlaceholderText}>🎯</Text>
+                      </View>
+                    )}
+                    <View style={styles.questCardContent}>
+                      <Text style={styles.questCardTitle}>{q.name}</Text>
+                      <Text style={styles.questCardDescription} numberOfLines={2}>{q.description || ''}</Text>
+                      <View style={styles.questCardFooter}>
+                        <Text style={styles.questCardReward}>🏆 {q.trophy_reward || 0}</Text>
+                        <TouchableOpacity style={styles.questCardButton}>
+                          <Text style={styles.questCardButtonText}>Start Quest</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
           </View>
         )}
 
         {page === 'Profile' && (
           <View style={styles.section}>
-            {/* Fixed header with avatar and name */}
-            <View style={{ alignItems: 'center', marginBottom: 10 }}>
-              <View style={styles.userAvatarLarge}>
-                {(profile?.avatar_url || profileAvatarUrl || userData?.avatar_url) ? (
-                  <Image source={{ uri: profileAvatarUrl || profile?.avatar_url || userData.avatar_url }} style={styles.userAvatarImgLarge} />
-                ) : (
-                  <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0]}</Text>
-                )}
-              </View>
-              <Text style={[styles.title, { marginBottom: 0 }]}>{profile?.username || userData?.username}</Text>
-            </View>
-            {/* Stats row */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 10 }}>
-              <Text style={styles.profileItem}>🏆 {profile?.trophies ?? userData?.trophies ?? 0}</Text>
-              <Text style={styles.profileItem}>🌟 {profile?.seasonal_trophies ?? userData?.seasonal_trophies ?? 0}</Text>
-              <Text style={styles.profileItem}>🔥 {profile?.current_streak ?? userData?.current_streak ?? 0}d</Text>
-            </View>
-            <Text style={styles.sectionTitle}>🎯 Daily Quests</Text>
-            {quests.map((q) => (
-              <View key={q.id} style={{ marginBottom: 10 }}>
-                <Text style={styles.listItem}><Text style={styles.bold}>{q.title}</Text> — {q.description} • {q.progress}/{q.target} (+{q.reward}🏆)</Text>
-                {q.progress >= q.target ? (
-                  <Text style={{ color: '#00ff88' }}>Completed</Text>
-                ) : (
-                  <TouchableOpacity style={[styles.pill, { alignSelf: 'flex-start' }]} onPress={() => handleCompleteQuest(q)}>
-                    <Text style={styles.pillText}>Complete</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
-            {/* Quest Completion Modal */}
-            {questModal.visible && questModal.quest && (
-              <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(30,30,60,0.95)', justifyContent: 'center', alignItems: 'center', zIndex: 99 }}>
-                <View style={{ backgroundColor: '#22224e', borderRadius: 16, padding: 24, alignItems: 'center', width: 300 }}>
-                  <Text style={{ fontSize: 22, color: '#4a90e2', fontWeight: 'bold', marginBottom: 10 }}>Complete Quest?</Text>
-                  <Text style={{ color: '#fff', marginBottom: 10 }}>{questModal.quest.title}</Text>
-                  <Text style={{ color: '#ccc', marginBottom: 20 }}>{questModal.quest.description}</Text>
-                  <Text style={{ color: '#00ff88', fontSize: 18, marginBottom: 20 }}>Reward: {questModal.quest.reward} 🏆</Text>
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <TouchableOpacity style={[styles.loginButton, { backgroundColor: '#4a90e2', flex: 1 }]} onPress={confirmCompleteQuest}>
-                      <Text style={styles.loginButtonText}>Confirm</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.loginButton, { backgroundColor: '#888', flex: 1 }]} onPress={() => setQuestModal({ visible: false, quest: null })}>
-                      <Text style={styles.loginButtonText}>Cancel</Text>
-                    </TouchableOpacity>
-                  </View>
+            {/* Profile Header */}
+            <View style={styles.profileHeader}>
+              <View style={styles.profileAvatarSection}>
+                <View style={styles.userAvatarLarge}>
+                  {(profile?.avatar_url || profileAvatarUrl || userData?.avatar_url) ? (
+                    <Image source={{ uri: profileAvatarUrl || profile?.avatar_url || userData.avatar_url }} style={styles.userAvatarImgLarge} />
+                  ) : (
+                    <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0]}</Text>
+                  )}
                 </View>
+                <TouchableOpacity style={styles.changeAvatarButton} onPress={async () => {
+                  try {
+                    const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                    if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
+                    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
+                    const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
+                    if (!asset) return;
+                    setUpdatingAvatar(true);
+                    let uploaded = await uploadImage({ bucket: 'profile-avatars', fileUri: asset.uri, pathPrefix: `${userData?.id}/` });
+                    if (!uploaded?.success && asset.base64) {
+                      uploaded = await uploadImage({ bucket: 'profile-avatars', base64: asset.base64, mimeType: 'image/jpeg', pathPrefix: `${userData?.id}/` });
+                    }
+                    if (uploaded?.success) {
+                      const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl: uploaded.url });
+                      console.log('UpdateUserAvatar response:', resp);
+                      if (resp?.success) {
+                        setProfileAvatarUrl(uploaded.url);
+                        setProfile((p) => p ? { ...p, avatar_url: uploaded.url } : p);
+                        Alert.alert('Profile', 'Avatar updated.');
+                      } else {
+                        console.error('Update avatar error:', resp?.error);
+                        Alert.alert('Profile', resp?.error ? `Error: ${resp.error}` : 'Update failed.');
+                      }
+                    } else {
+                      console.error('Profile image upload error:', uploaded?.error);
+                      Alert.alert('Profile', uploaded?.error ? `Error: ${uploaded.error}` : 'Upload failed. Please check your network and try again.');
+                    }
+                  } catch (e) {
+                    console.error('Profile image upload exception:', e);
+                  } finally { setUpdatingAvatar(false); }
+                }}>
+                  <Text style={styles.changeAvatarText}>📷 Change Photo</Text>
+                </TouchableOpacity>
               </View>
-            )}
-            {/* Change avatar */}
-            <TouchableOpacity style={[styles.pill, { alignSelf: 'center', marginTop: 6 }]} onPress={async () => {
-              try {
-                const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
-                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-                const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
-                if (!asset) return;
-                setUpdatingAvatar(true);
-                let uploaded = await uploadImage({ bucket: 'profile-avatars', fileUri: asset.uri, pathPrefix: `${userData?.id}/` });
-                if (!uploaded?.success && asset.base64) {
-                  uploaded = await uploadImage({ bucket: 'profile-avatars', base64: asset.base64, mimeType: 'image/jpeg', pathPrefix: `${userData?.id}/` });
-                }
-                if (uploaded?.success) {
-                  const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl: uploaded.url });
-                  console.log('UpdateUserAvatar response:', resp);
-                  if (resp?.success) {
-                    setProfileAvatarUrl(uploaded.url);
-                    setProfile((p) => p ? { ...p, avatar_url: uploaded.url } : p);
-                    Alert.alert('Profile', 'Avatar updated.');
-                  } else {
-                    console.error('Update avatar error:', resp?.error);
-                    Alert.alert('Profile', resp?.error ? `Error: ${resp.error}` : 'Update failed.');
-                  }
-                } else {
-                  console.error('Profile image upload error:', uploaded?.error);
-                  Alert.alert('Profile', uploaded?.error ? `Error: ${uploaded.error}` : 'Upload failed. Please check your network and try again.');
-                }
-              } catch (e) {
-                console.error('Profile image upload exception:', e);
-              } finally { setUpdatingAvatar(false); }
-            }}>
-              <Text style={styles.pillText}>Change Avatar</Text>
-            </TouchableOpacity>
+              
+              <View style={styles.profileInfo}>
+                <Text style={styles.profileUsername}>{profile?.username || userData?.username}</Text>
+                <Text style={styles.profileJoinDate}>Joined {new Date(userData?.created_at || Date.now()).toLocaleDateString()}</Text>
+              </View>
+            </View>
+
+            {/* Stats Cards */}
+            <View style={styles.statsContainer}>
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>{profile?.trophies ?? userData?.trophies ?? 0}</Text>
+                <Text style={styles.statLabel}>🏆 Trophies</Text>
+              </View>
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>{profile?.seasonal_trophies ?? userData?.seasonal_trophies ?? 0}</Text>
+                <Text style={styles.statLabel}>🌟 Season</Text>
+              </View>
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>{profile?.current_streak ?? userData?.current_streak ?? 0}</Text>
+                <Text style={styles.statLabel}>🔥 Streak</Text>
+              </View>
+            </View>
+
+            {/* Daily Quests Section */}
+            <View style={styles.profileSection}>
+              <Text style={styles.profileSectionTitle}>🎯 Daily Quests</Text>
+              <View style={styles.questsContainer}>
+                {quests.map((q) => (
+                  <View key={q.id} style={styles.dailyQuestCard}>
+                    <View style={styles.questProgress}>
+                      <View style={styles.questProgressBar}>
+                        <View style={[styles.questProgressFill, { width: `${Math.min(100, (q.progress / q.target) * 100)}%` }]} />
+                      </View>
+                      <Text style={styles.questProgressText}>{q.progress}/{q.target}</Text>
+                    </View>
+                    <View style={styles.questInfo}>
+                      <Text style={styles.questTitle}>{q.title}</Text>
+                      <Text style={styles.questDescription}>{q.description}</Text>
+                      <Text style={styles.questReward}>Reward: {q.reward} 🏆</Text>
+                    </View>
+                    <View style={styles.questAction}>
+                      {q.progress >= q.target ? (
+                        <View style={styles.completedBadge}>
+                          <Text style={styles.completedText}>✅ Done</Text>
+                        </View>
+                      ) : (
+                        <TouchableOpacity style={styles.completeButton} onPress={() => handleCompleteQuest(q)}>
+                          <Text style={styles.completeButtonText}>Complete</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            {/* Badges Section */}
             {!!badges.length && (
-              <View style={{ marginTop: 10 }}>
-                <Text style={styles.sectionTitle}>🏅 Badges</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              <View style={styles.profileSection}>
+                <Text style={styles.profileSectionTitle}>🏅 Achievements</Text>
+                <View style={styles.badgesContainer}>
                   {badges.map((b) => (
-                    <View key={b.id} style={{ paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#1f1f3a', borderRadius: 16, marginRight: 6, marginBottom: 6 }}>
-                      <Text style={{ color: '#fff' }}>{b.badge_name || b.badge_type}</Text>
+                    <View key={b.id} style={styles.badgeItem}>
+                      <Text style={styles.badgeText}>{b.badge_name || b.badge_type}</Text>
                     </View>
                   ))}
                 </View>
               </View>
             )}
-            <TouchableOpacity style={[styles.logoutButton, { alignSelf: 'center' }]} onPress={onLogout}>
-              <Text style={styles.logoutButtonText}>Logout</Text>
+
+            {/* Quest Completion Modal */}
+            {questModal.visible && questModal.quest && (
+              <View style={styles.modalOverlay}>
+                <View style={styles.modalContent}>
+                  <Text style={styles.modalTitle}>Complete Quest?</Text>
+                  <Text style={styles.modalQuestName}>{questModal.quest.title}</Text>
+                  <Text style={styles.modalQuestDescription}>{questModal.quest.description}</Text>
+                  <Text style={styles.modalReward}>Reward: {questModal.quest.reward} 🏆</Text>
+                  <View style={styles.modalButtons}>
+                    <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={confirmCompleteQuest}>
+                      <Text style={styles.modalButtonText}>Confirm</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setQuestModal({ visible: false, quest: null })}>
+                      <Text style={styles.modalButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* Logout Button */}
+            <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
+              <Text style={styles.logoutButtonText}>🚪 Sign Out</Text>
             </TouchableOpacity>
           </View>
         )}
   </ScrollView>
       {/* Bottom tabs */}
       <View style={styles.bottomTabs}>
-        {['Chat','Stories','Leaderboard','Quests','Profile'].map((p) => (
-          <TouchableOpacity key={p} style={[styles.bottomTab, page === p && styles.bottomTabActive]} onPress={() => setPage(p)}>
-            <Text style={[styles.bottomTabText, page === p && styles.bottomTabTextActive]}>{p}</Text>
+        {[
+          { key: 'Chat', icon: '💬', label: 'Chat' },
+          { key: 'Stories', icon: '📚', label: 'Stories' },
+          { key: 'Leaderboard', icon: '🏆', label: 'Ranking' },
+          { key: 'Quests', icon: '🎯', label: 'Quests' },
+          { key: 'Profile', icon: '👤', label: 'Profile' }
+        ].map((tab) => (
+          <TouchableOpacity key={tab.key} style={[styles.bottomTab, page === tab.key && styles.bottomTabActive]} onPress={() => setPage(tab.key)}>
+            <Text style={[styles.bottomTabIcon, page === tab.key && styles.bottomTabIconActive]}>{tab.icon}</Text>
+            <Text style={[styles.bottomTabText, page === tab.key && styles.bottomTabTextActive]}>{tab.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -995,15 +1087,600 @@ const styles = StyleSheet.create({
     bottom: 0,
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingVertical: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     backgroundColor: '#2a2a4e',
     borderTopWidth: 1,
     borderTopColor: '#3b3b69',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  bottomTab: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12 },
+  bottomTab: { 
+    paddingVertical: 8, 
+    paddingHorizontal: 12, 
+    borderRadius: 12,
+    alignItems: 'center',
+    minWidth: 60
+  },
   bottomTabActive: { backgroundColor: '#4a90e2' },
-  bottomTabText: { color: '#cccccc' },
+  bottomTabIcon: { 
+    fontSize: 20, 
+    marginBottom: 4, 
+    color: '#cccccc' 
+  },
+  bottomTabIconActive: { color: '#ffffff' },
+  bottomTabText: { 
+    color: '#cccccc', 
+    fontSize: 10, 
+    fontWeight: '500' 
+  },
   bottomTabTextActive: { color: '#ffffff', fontWeight: 'bold' },
+  
+  // New Groups Styles
+  groupsContainer: {
+    gap: 12,
+  },
+  groupCardNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1f1f3a',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#3b3b69',
+  },
+  groupAvatarNew: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#4a90e2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  groupAvatarImgNew: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  groupAvatarTextNew: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 20,
+  },
+  groupInfoNew: {
+    flex: 1,
+  },
+  groupNameNew: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  groupSubtitle: {
+    color: '#ccc',
+    fontSize: 14,
+  },
+
+  // Stories Styles
+  addStoryContainer: {
+    backgroundColor: '#1f1f3a',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#3b3b69',
+  },
+  storyActionButton: {
+    backgroundColor: '#3b3b69',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  storyActionText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  previewImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginVertical: 10,
+  },
+  publishButton: {
+    backgroundColor: '#4a90e2',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+  },
+  publishButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  storiesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  storyCard: {
+    width: '48%',
+    backgroundColor: '#1f1f3a',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  storyImage: {
+    width: '100%',
+    height: 120,
+  },
+  storyPlaceholder: {
+    width: '100%',
+    height: 120,
+    backgroundColor: '#3b3b69',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storyPlaceholderText: {
+    fontSize: 32,
+  },
+  storyOverlay: {
+    padding: 12,
+  },
+  storyAuthor: {
+    color: '#4a90e2',
+    fontWeight: 'bold',
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  storyPreview: {
+    color: '#ccc',
+    fontSize: 12,
+  },
+
+  // Leaderboard Styles
+  leaderboardContainer: {
+    gap: 12,
+  },
+  leaderboardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1f1f3a',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#3b3b69',
+  },
+  rankBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#4a90e2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  rankText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  userAvatarLeaderboard: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#3b3b69',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  userAvatarImgLeaderboard: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+  },
+  userAvatarTextLeaderboard: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+  leaderboardInfo: {
+    flex: 1,
+  },
+  leaderboardName: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  leaderboardTrophies: {
+    color: '#ccc',
+    fontSize: 14,
+  },
+  crownEmoji: {
+    fontSize: 24,
+    marginLeft: 8,
+  },
+
+  // Quest Styles
+  adminSection: {
+    backgroundColor: '#1f1f3a',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#4a90e2',
+  },
+  adminTitle: {
+    color: '#4a90e2',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  questForm: {
+    gap: 12,
+  },
+  questFormButton: {
+    backgroundColor: '#3b3b69',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  questFormButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  questPreviewImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginVertical: 10,
+  },
+  typeButton: {
+    backgroundColor: '#3b3b69',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  typeButtonActive: {
+    backgroundColor: '#4a90e2',
+  },
+  typeButtonText: {
+    color: '#ccc',
+    fontSize: 12,
+  },
+  typeButtonTextActive: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  createQuestButton: {
+    backgroundColor: '#4a90e2',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+  },
+  createQuestButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  questsListContainer: {
+    flex: 1,
+  },
+  questsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  questsListTitle: {
+    color: '#4a90e2',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  refreshButton: {
+    backgroundColor: '#3b3b69',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  refreshButtonText: {
+    color: '#fff',
+    fontSize: 12,
+  },
+  questsList: {
+    gap: 12,
+  },
+  questCard: {
+    backgroundColor: '#1f1f3a',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#3b3b69',
+  },
+  questCardImage: {
+    width: '100%',
+    height: 120,
+  },
+  questCardPlaceholder: {
+    width: '100%',
+    height: 120,
+    backgroundColor: '#3b3b69',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  questCardPlaceholderText: {
+    fontSize: 32,
+  },
+  questCardContent: {
+    padding: 16,
+  },
+  questCardTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  questCardDescription: {
+    color: '#ccc',
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  questCardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  questCardReward: {
+    color: '#4a90e2',
+    fontWeight: 'bold',
+  },
+  questCardButton: {
+    backgroundColor: '#4a90e2',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  questCardButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+
+  // Profile Styles
+  profileHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  profileAvatarSection: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  changeAvatarButton: {
+    backgroundColor: '#3b3b69',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginTop: 12,
+  },
+  changeAvatarText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  profileInfo: {
+    alignItems: 'center',
+  },
+  profileUsername: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  profileJoinDate: {
+    color: '#ccc',
+    fontSize: 14,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 24,
+  },
+  statCard: {
+    backgroundColor: '#1f1f3a',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    flex: 1,
+    marginHorizontal: 4,
+    borderWidth: 1,
+    borderColor: '#3b3b69',
+  },
+  statNumber: {
+    color: '#4a90e2',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  statLabel: {
+    color: '#ccc',
+    fontSize: 12,
+  },
+  profileSection: {
+    marginBottom: 24,
+  },
+  profileSectionTitle: {
+    color: '#4a90e2',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+  questsContainer: {
+    gap: 12,
+  },
+  dailyQuestCard: {
+    backgroundColor: '#1f1f3a',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#3b3b69',
+  },
+  questProgress: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  questProgressBar: {
+    flex: 1,
+    height: 8,
+    backgroundColor: '#3b3b69',
+    borderRadius: 4,
+    marginRight: 12,
+    overflow: 'hidden',
+  },
+  questProgressFill: {
+    height: '100%',
+    backgroundColor: '#4a90e2',
+  },
+  questProgressText: {
+    color: '#ccc',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  questInfo: {
+    marginBottom: 12,
+  },
+  questTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  questDescription: {
+    color: '#ccc',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  questReward: {
+    color: '#4a90e2',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  questAction: {
+    alignItems: 'flex-end',
+  },
+  completedBadge: {
+    backgroundColor: '#00ff88',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  completedText: {
+    color: '#000',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  completeButton: {
+    backgroundColor: '#4a90e2',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  completeButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  badgesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  badgeItem: {
+    backgroundColor: '#1f1f3a',
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#4a90e2',
+  },
+  badgeText: {
+    color: '#4a90e2',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(26, 26, 46, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
+  },
+  modalContent: {
+    backgroundColor: '#22224e',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    width: 300,
+    borderWidth: 2,
+    borderColor: '#4a90e2',
+  },
+  modalTitle: {
+    fontSize: 20,
+    color: '#4a90e2',
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  modalQuestName: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalQuestDescription: {
+    color: '#ccc',
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  modalReward: {
+    color: '#00ff88',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  modalButtonConfirm: {
+    backgroundColor: '#4a90e2',
+  },
+  modalButtonCancel: {
+    backgroundColor: '#888',
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
   tab: {
     paddingVertical: 8,
     paddingHorizontal: 16,
