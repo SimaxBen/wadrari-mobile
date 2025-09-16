@@ -177,11 +177,13 @@ const LoginScreen = ({ onLogin }) => {
 
 // Main App Screen Component  
 const MainScreen = ({ userData, onLogout }) => {
-  const [page, setPage] = useState('Chat'); // Chat | Stories | Leaderboard | Quests | Profile
+  const [page, setPage] = useState('Chat'); // Chat | Stories | Leaderboard | Quests | Profile | CreateQuest | CreateStory | CreateChat
   const [questModal, setQuestModal] = useState({ visible: false, quest: null });
   const [showQuestForm, setShowQuestForm] = useState(false);
   const [showStoryForm, setShowStoryForm] = useState(false);
   const [selectedStory, setSelectedStory] = useState(null);
+  const [showCreateChat, setShowCreateChat] = useState(false);
+  const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [stories, setStories] = useState([]);
@@ -286,6 +288,12 @@ const MainScreen = ({ userData, onLogout }) => {
           setAllQuests(Array.isArray(list) ? list : []);
         } catch (_) {}
       }
+      // Refresh leaderboard when switching to it for real-time updates
+      if (page === 'Leaderboard' && typeof getLeaderboard === 'function') {
+        const leaderboardData = await getLeaderboard({ limit: 20 });
+        setLeaderboard(Array.isArray(leaderboardData) ? leaderboardData : []);
+      }
+      
       if (page === 'Profile' && userData?.id && typeof getUserBadges === 'function') {
         try {
           const b = await getUserBadges({ userId: userData.id });
@@ -473,96 +481,90 @@ const MainScreen = ({ userData, onLogout }) => {
 
         {page === 'Chat' && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>💬 Groups</Text>
-            
-            {/* Create Group Button at Top */}
-            {!activeChat && (
-              <View style={[styles.row, { marginBottom: 16 }]}>
-                <TextInput 
-                  style={[styles.input, { flex: 1, marginRight: 10 }]} 
-                  placeholder="New group name" 
-                  placeholderTextColor="#888" 
-                  value={newChatName} 
-                  onChangeText={setNewChatName} 
-                />
-                <TouchableOpacity style={[styles.loginButton, { paddingHorizontal: 20 }]} onPress={handleCreateChat}>
-                  <Text style={styles.loginButtonText}>Create</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            
-            {!activeChat && (
-              <View style={styles.groupsContainer}>
-                {chats.map((c) => (
-                  <TouchableOpacity key={c.id} style={styles.groupCardNew} onPress={async () => {
-                    setActiveChat(c);
-                    const list = await getMessagesByChat({ chatId: c.id, limit: 100 });
-                    setMessages(Array.isArray(list) ? list : []);
-                  }}>
-                    <View style={styles.groupAvatarNew}>
-                      {c.image_url ? (
-                        <Image 
-                          source={{ uri: c.image_url }} 
-                          style={styles.groupAvatarImgNew}
-                          onError={(e) => {
-                            console.log('Group image load error:', e.nativeEvent.error);
-                          }}
-                        />
-                      ) : (
-                        <Text style={styles.groupAvatarTextNew}>{(c.name || 'G')[0]}</Text>
-                      )}
-                    </View>
-                    <View style={styles.groupInfoNew}>
-                      <Text style={styles.groupNameNew}>{c.name}</Text>
-                      <Text style={styles.groupSubtitle}>Tap to join chat</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-            {activeChat && (
+            {!activeChat ? (
               <View>
-                <View style={[styles.row, { justifyContent: 'space-between' }]}>
-                  <View style={[styles.row, { flex: 1 }]}>
-                    <TouchableOpacity onPress={() => setActiveChat(null)} style={[styles.pill, { marginBottom: 10 }]}><Text style={styles.pillText}>⬅ Back</Text></TouchableOpacity>
-                    <Text style={[styles.sectionTitle, { marginLeft: 10 }]}>{activeChat.name}</Text>
-                  </View>
-                  <TouchableOpacity disabled={updatingChatImage} style={[styles.pill, { marginBottom: 10 }]} onPress={async () => {
-                    try {
-                      const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                      if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
-                      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-                      const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
-                      if (!asset) return;
-                      setUpdatingChatImage(true);
-                      let uploaded = await uploadImage({ bucket: 'group-images', fileUri: asset.uri, pathPrefix: `${activeChat.id}/` });
-                      if (!uploaded?.success && asset.base64) {
-                        uploaded = await uploadImage({ bucket: 'group-images', base64: asset.base64, mimeType: 'image/jpeg', pathPrefix: `${activeChat.id}/` });
-                      }
-                      if (uploaded?.success) {
-                        await updateChatImage({ chatId: activeChat.id, imageUrl: uploaded.url });
-                        setChats((prev) => prev.map((x) => x.id === activeChat.id ? { ...x, image_url: uploaded.url } : x));
-                        setActiveChat((prev) => prev ? { ...prev, image_url: uploaded.url } : prev);
-                        Alert.alert('Group', 'Image updated.');
-                      } else {
-                        console.error('Group image upload error:', uploaded?.error);
-                        Alert.alert('Group', uploaded?.error ? `Error: ${uploaded.error}` : 'Upload failed. Please check your network and try again.');
-                      }
-                    } catch (e) {
-                      console.error('Group image upload exception:', e);
-                    } finally { setUpdatingChatImage(false); }
-                  }}>
-                    <Text style={styles.pillText}>{updatingChatImage ? 'Updating…' : 'Change Photo'}</Text>
+                {/* WhatsApp-style header */}
+                <View style={styles.whatsappHeader}>
+                  <Text style={styles.whatsappTitle}>Chats</Text>
+                  <TouchableOpacity style={styles.newChatButton} onPress={() => setPage('CreateChat')}>
+                    <Text style={styles.newChatButtonText}>➕</Text>
                   </TouchableOpacity>
                 </View>
-                {messages.filter(m => m.chat_id === activeChat.id).map((m) => (
-                  <Text key={m.id} style={styles.listItem}>
-                    <Text style={styles.bold}>{m.username || 'User'}</Text> · {new Date(m.created_at).toLocaleString()}{'\n'}{m.message}
-                  </Text>
-                ))}
-                <View style={styles.row}>
+                
+                {/* WhatsApp-style chat list */}
+                <View style={styles.whatsappChatList}>
+                  {chats.map((c) => (
+                    <TouchableOpacity key={c.id} style={styles.whatsappChatItem} onPress={async () => {
+                      setActiveChat(c);
+                      const list = await getMessagesByChat({ chatId: c.id, limit: 100 });
+                      setMessages(Array.isArray(list) ? list : []);
+                    }}>
+                      <View style={styles.whatsappAvatar}>
+                        {c.image_url ? (
+                          <Image 
+                            source={{ uri: c.image_url }} 
+                            style={styles.whatsappAvatarImg}
+                            onError={(e) => {
+                              console.log('Group image load error:', e.nativeEvent.error);
+                            }}
+                          />
+                        ) : (
+                          <Text style={styles.whatsappAvatarText}>{(c.name || 'G')[0].toUpperCase()}</Text>
+                        )}
+                      </View>
+                      <View style={styles.whatsappChatInfo}>
+                        <View style={styles.whatsappChatHeader}>
+                          <Text style={styles.whatsappChatName}>{c.name}</Text>
+                          <Text style={styles.whatsappChatTime}>now</Text>
+                        </View>
+                        <Text style={styles.whatsappLastMessage}>Tap to open chat...</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ) : (
+              <View style={styles.whatsappChatView}>
+                {/* WhatsApp-style chat header */}
+                <View style={styles.whatsappChatViewHeader}>
+                  <TouchableOpacity onPress={() => setActiveChat(null)} style={styles.whatsappBackButton}>
+                    <Text style={styles.whatsappBackText}>←</Text>
+                  </TouchableOpacity>
+                  <View style={styles.whatsappChatAvatar}>
+                    {activeChat.image_url ? (
+                      <Image source={{ uri: activeChat.image_url }} style={styles.whatsappChatAvatarImg} />
+                    ) : (
+                      <Text style={styles.whatsappChatAvatarText}>{(activeChat.name || 'G')[0].toUpperCase()}</Text>
+                    )}
+                  </View>
+                  <View style={styles.whatsappChatHeaderInfo}>
+                    <Text style={styles.whatsappChatHeaderName}>{activeChat.name}</Text>
+                    <Text style={styles.whatsappChatHeaderStatus}>online</Text>
+                  </View>
+                  <TouchableOpacity style={styles.whatsappMenuButton} onPress={() => setShowGroupSettings(true)}>
+                    <Text style={styles.whatsappMenuText}>⋮</Text>
+                  </TouchableOpacity>
+                </View>
+                
+                {/* WhatsApp-style message area */}
+                <View style={styles.whatsappMessageArea}>
+                  {messages.filter(m => m.chat_id === activeChat.id).map((m) => (
+                    <View key={m.id} style={[styles.whatsappMessage, m.sender_id === userData?.id ? styles.whatsappMessageSent : styles.whatsappMessageReceived]}>
+                      {m.sender_id !== userData?.id && (
+                        <Text style={styles.whatsappMessageSender}>{m.username || 'User'}</Text>
+                      )}
+                      <Text style={styles.whatsappMessageText}>{m.message}</Text>
+                      <Text style={styles.whatsappMessageTime}>
+                        {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                
+                {/* WhatsApp-style input */}
+                <View style={styles.whatsappInputContainer}>
                   <TextInput 
-                    style={[styles.input, { flex: 1, marginRight: 10, minHeight: 40 }]} 
+                    style={styles.whatsappInput} 
                     placeholder="Type a message" 
                     placeholderTextColor="#888" 
                     value={newMessage} 
@@ -570,13 +572,13 @@ const MainScreen = ({ userData, onLogout }) => {
                     multiline 
                   />
                   <TouchableOpacity 
-                    style={[styles.loginButton, { paddingHorizontal: 20, minHeight: 40, justifyContent: 'center' }]} 
+                    style={styles.whatsappSendButton} 
                     onPress={async () => { 
                       await handleSend(); 
                       await notifyNewMessage(userData?.username, newMessage); 
                     }}
                   >
-                    <Text style={styles.loginButtonText}>Send</Text>
+                    <Text style={styles.whatsappSendText}>→</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -589,7 +591,7 @@ const MainScreen = ({ userData, onLogout }) => {
             <Text style={styles.sectionTitle}>📚 Stories</Text>
             
             {/* Add Story Button */}
-            <TouchableOpacity style={styles.addButton} onPress={() => setShowStoryForm(true)}>
+            <TouchableOpacity style={styles.addButton} onPress={() => setPage('CreateStory')}>
               <Text style={styles.addButtonText}>➕ Add Story</Text>
             </TouchableOpacity>
 
@@ -658,7 +660,7 @@ const MainScreen = ({ userData, onLogout }) => {
             
             {/* Add Quest Button for Admin */}
             {userData?.username === 'SIMAX' && (
-              <TouchableOpacity style={styles.addButton} onPress={() => setShowQuestForm(true)}>
+              <TouchableOpacity style={styles.addButton} onPress={() => setPage('CreateQuest')}>
                 <Text style={styles.addButtonText}>➕ Add Quest</Text>
               </TouchableOpacity>
             )}
@@ -700,22 +702,41 @@ const MainScreen = ({ userData, onLogout }) => {
                         <Text style={styles.questCardReward}>🏆 {q.trophy_reward || 0}</Text>
                         <TouchableOpacity style={styles.questCardButton} onPress={async () => {
                           try {
+                            // Check if completeQuest function exists
+                            if (typeof completeQuest !== 'function') {
+                              Alert.alert('Error', 'Quest completion not available');
+                              return;
+                            }
+                            
                             const result = await completeQuest({ questId: q.id, userId: userData?.id });
                             if (result?.success) {
-                              Alert.alert('Quest Complete!', `You earned ${q.trophy_reward || 0} trophies! 🏆`);
+                              Alert.alert('Quest Complete! 🎉', `You earned ${q.trophy_reward || 0} trophies!`);
+                              
                               // Refresh user data and quests
-                              const updatedUser = await getUserProfile({ userId: userData?.id });
-                              if (updatedUser?.success) {
-                                setUserData(updatedUser.data);
+                              if (typeof getUserProfile === 'function') {
+                                const updatedUser = await getUserProfile({ userId: userData?.id });
+                                if (updatedUser?.success) {
+                                  setUserData(updatedUser.data);
+                                }
                               }
-                              const list = await getAllQuests({ onlyActive: true });
-                              setAllQuests(Array.isArray(list) ? list : []);
+                              
+                              // Refresh quest list
+                              if (typeof getAllQuests === 'function') {
+                                const list = await getAllQuests({ onlyActive: true });
+                                setAllQuests(Array.isArray(list) ? list : []);
+                              }
+                              
+                              // Refresh leaderboard for real-time updates
+                              if (typeof getLeaderboard === 'function') {
+                                const leaderboardData = await getLeaderboard({ limit: 10 });
+                                setLeaderboard(Array.isArray(leaderboardData) ? leaderboardData : []);
+                              }
                             } else {
-                              Alert.alert('Quest', result?.error || 'Failed to complete quest');
+                              Alert.alert('Quest Error', result?.error || 'Failed to complete quest');
                             }
                           } catch (e) {
                             console.error('Complete quest error:', e);
-                            Alert.alert('Quest', 'Failed to complete quest');
+                            Alert.alert('Quest Error', 'An error occurred while completing the quest');
                           }
                         }}>
                           <Text style={styles.questCardButtonText}>Complete Quest</Text>
@@ -725,6 +746,183 @@ const MainScreen = ({ userData, onLogout }) => {
                   </TouchableOpacity>
                 ))}
               </View>
+            </View>
+          </View>
+        )}
+
+        {page === 'CreateQuest' && (
+          <View style={styles.fullPageContainer}>
+            <View style={styles.fullPageHeader}>
+              <TouchableOpacity onPress={() => setPage('Quests')} style={styles.backButton}>
+                <Text style={styles.backButtonText}>← Back</Text>
+              </TouchableOpacity>
+              <Text style={styles.fullPageTitle}>Create New Quest</Text>
+            </View>
+            
+            <ScrollView style={styles.fullPageContent}>
+              <TextInput 
+                style={[styles.fullPageInput, { marginBottom: 16 }]} 
+                placeholder="Quest Name" 
+                placeholderTextColor="#888" 
+                value={questForm.name} 
+                onChangeText={(t) => setQuestForm({ ...questForm, name: t })} 
+              />
+              <TextInput 
+                style={[styles.fullPageInput, { minHeight: 100, marginBottom: 16 }]} 
+                placeholder="Quest Description" 
+                placeholderTextColor="#888" 
+                value={questForm.description} 
+                onChangeText={(t) => setQuestForm({ ...questForm, description: t })} 
+                multiline 
+              />
+              <TouchableOpacity style={[styles.fullPageButton, { marginBottom: 16 }]} onPress={async () => {
+                const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
+                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
+                const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
+                if (asset) { setQuestImageUri(asset.uri); setQuestImageBase64(asset.base64 || null); }
+              }}>
+                <Text style={styles.fullPageButtonText}>📷 Add Image</Text>
+              </TouchableOpacity>
+              {!!questImageUri && <Image source={{ uri: questImageUri }} style={[styles.fullPagePreviewImage, { marginBottom: 16 }]} />}
+              <View style={[styles.row, { marginBottom: 16, justifyContent: 'space-around' }]}> 
+                {['daily','weekly','one_time'].map((t) => (
+                  <TouchableOpacity key={t} style={[styles.typeButton, (questForm.type===t) && styles.typeButtonActive]} onPress={() => setQuestForm({ ...questForm, type: t })}>
+                    <Text style={[styles.typeButtonText, (questForm.type===t) && styles.typeButtonTextActive]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TextInput 
+                style={[styles.fullPageInput, { marginBottom: 24 }]} 
+                placeholder="Trophy Reward" 
+                placeholderTextColor="#888" 
+                keyboardType="numeric" 
+                value={questForm.reward} 
+                onChangeText={(t) => setQuestForm({ ...questForm, reward: t })} 
+              />
+              <TouchableOpacity style={styles.fullPageSubmitButton} onPress={async () => {
+                const name = (questForm.name || '').trim();
+                if (!name) { Alert.alert('Error', 'Please enter a quest name'); return; }
+                const reward = parseInt(questForm.reward || '0', 10) || 0;
+                try {
+                  let imageUrl = null;
+                  if (questImageUri) {
+                    let uploaded = await uploadImage({ bucket: 'quest-images', fileUri: questImageUri, pathPrefix: `quests/${userData?.id || 'admin'}/` });
+                    if (!uploaded?.success && questImageBase64) {
+                      uploaded = await uploadImage({ bucket: 'quest-images', base64: questImageBase64, mimeType: 'image/jpeg', pathPrefix: `quests/${userData?.id || 'admin'}/` });
+                    }
+                    if (uploaded?.success) imageUrl = uploaded.url; 
+                    else {
+                      console.error('Quest image upload error:', uploaded?.error);
+                      Alert.alert('Quest', uploaded?.error ? `Error: ${uploaded.error}` : 'Image upload failed. Please check your network and try again.');
+                      return;
+                    }
+                  }
+                  const res = await (createQuest ? createQuest({ name, description: questForm.description || null, image_url: imageUrl, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
+                  if (res?.success) {
+                    Alert.alert('Success', 'Quest created successfully!');
+                    setQuestForm({ name: '', description: '', reward: '10', type: 'daily' });
+                    setQuestImageUri('');
+                    setQuestImageBase64(null);
+                    setPage('Quests');
+                    try {
+                      const list = await getAllQuests({ onlyActive: true });
+                      setAllQuests(Array.isArray(list) ? list : []);
+                    } catch (_) {}
+                  } else {
+                    console.error('Create quest error:', res?.error);
+                    Alert.alert('Error', res?.error ? `Error: ${res.error}` : 'Failed to create quest');
+                  }
+                } catch (e) {
+                  console.error('Create quest exception:', e);
+                  Alert.alert('Error', e.message ? `Exception: ${e.message}` : 'Unknown error occurred');
+                }
+              }}>
+                <Text style={styles.fullPageSubmitButtonText}>🚀 Create Quest</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        )}
+
+        {page === 'CreateStory' && (
+          <View style={styles.fullPageContainer}>
+            <View style={styles.fullPageHeader}>
+              <TouchableOpacity onPress={() => setPage('Stories')} style={styles.backButton}>
+                <Text style={styles.backButtonText}>← Back</Text>
+              </TouchableOpacity>
+              <Text style={styles.fullPageTitle}>Create New Story</Text>
+            </View>
+            
+            <ScrollView style={styles.fullPageContent}>
+              <TextInput 
+                style={[styles.fullPageInput, { minHeight: 120, marginBottom: 16 }]} 
+                placeholder="What's your story today?" 
+                placeholderTextColor="#888" 
+                value={storyText} 
+                onChangeText={setStoryText} 
+                multiline 
+              />
+              <View style={[styles.row, { marginBottom: 16 }]}>
+                <TouchableOpacity style={[styles.fullPageButton, { flex: 1, marginRight: 8 }]} onPress={async () => {
+                  const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                  if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
+                  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
+                  if (!result.canceled && result.assets?.[0]?.uri) {
+                    setStoryImageUri(result.assets[0].uri);
+                    setStoryImageBase64(result.assets[0].base64 || null);
+                  }
+                }}>
+                  <Text style={styles.fullPageButtonText}>📷 Gallery</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.fullPageButton, { flex: 1, marginLeft: 8 }]} onPress={async () => {
+                  const cap = await ImagePicker.requestCameraPermissionsAsync();
+                  if (cap.status !== 'granted') { Alert.alert('Permission', 'Camera required'); return; }
+                  const result = await ImagePicker.launchCameraAsync({ quality: 0.8, base64: true });
+                  if (!result.canceled && result.assets?.[0]?.uri) {
+                    setStoryImageUri(result.assets[0].uri);
+                    setStoryImageBase64(result.assets[0].base64 || null);
+                  }
+                }}>
+                  <Text style={styles.fullPageButtonText}>📸 Camera</Text>
+                </TouchableOpacity>
+              </View>
+              {!!storyImageUri && <Image source={{ uri: storyImageUri }} style={[styles.fullPagePreviewImage, { marginBottom: 16 }]} />}
+              <TouchableOpacity style={styles.fullPageSubmitButton} onPress={async () => {
+                if (!storyText.trim()) { Alert.alert('Error', 'Please enter story text'); return; }
+                await handleAddStory();
+                await notifyStoryPosted();
+                setPage('Stories');
+              }}>
+                <Text style={styles.fullPageSubmitButtonText}>✨ Publish Story</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        )}
+
+        {page === 'CreateChat' && (
+          <View style={styles.fullPageContainer}>
+            <View style={styles.fullPageHeader}>
+              <TouchableOpacity onPress={() => setPage('Chat')} style={styles.backButton}>
+                <Text style={styles.backButtonText}>← Back</Text>
+              </TouchableOpacity>
+              <Text style={styles.fullPageTitle}>Create New Group</Text>
+            </View>
+            
+            <View style={styles.fullPageContent}>
+              <TextInput 
+                style={[styles.fullPageInput, { marginBottom: 24 }]} 
+                placeholder="Group Name" 
+                placeholderTextColor="#888" 
+                value={newChatName} 
+                onChangeText={setNewChatName} 
+              />
+              <TouchableOpacity style={styles.fullPageSubmitButton} onPress={async () => {
+                if (!newChatName.trim()) { Alert.alert('Error', 'Please enter a group name'); return; }
+                await handleCreateChat();
+                setPage('Chat');
+              }}>
+                <Text style={styles.fullPageSubmitButtonText}>🚀 Create Group</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -868,189 +1066,6 @@ const MainScreen = ({ userData, onLogout }) => {
               </View>
             )}
 
-            {/* Quest Creation Modal */}
-            {showQuestForm && (
-              <View style={styles.modalOverlay}>
-                <View style={[styles.modalContent, { width: '90%', maxHeight: '80%' }]}>
-                  <ScrollView showsVerticalScrollIndicator={false}>
-                    <Text style={styles.modalTitle}>➕ Create New Quest</Text>
-                    <TextInput 
-                      style={[styles.input, { width: '100%', marginBottom: 12 }]} 
-                      placeholder="Quest Name" 
-                      placeholderTextColor="#888" 
-                      value={questForm.name} 
-                      onChangeText={(t) => setQuestForm({ ...questForm, name: t })} 
-                    />
-                    <TextInput 
-                      style={[styles.input, { width: '100%', marginBottom: 12, minHeight: 80 }]} 
-                      placeholder="Quest Description" 
-                      placeholderTextColor="#888" 
-                      value={questForm.description} 
-                      onChangeText={(t) => setQuestForm({ ...questForm, description: t })} 
-                      multiline 
-                    />
-                    <TouchableOpacity style={[styles.questFormButton, { marginBottom: 12 }]} onPress={async () => {
-                      const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                      if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
-                      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-                      const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
-                      if (asset) { setQuestImageUri(asset.uri); setQuestImageBase64(asset.base64 || null); }
-                    }}>
-                      <Text style={styles.questFormButtonText}>🖼️ Add Image</Text>
-                    </TouchableOpacity>
-                    {!!questImageUri && <Image source={{ uri: questImageUri }} style={[styles.questPreviewImage, { marginBottom: 12 }]} />}
-                    <View style={[styles.row, { marginBottom: 12, justifyContent: 'space-around' }]}> 
-                      {['daily','weekly','one_time'].map((t) => (
-                        <TouchableOpacity key={t} style={[styles.typeButton, (questForm.type===t) && styles.typeButtonActive]} onPress={() => setQuestForm({ ...questForm, type: t })}>
-                          <Text style={[styles.typeButtonText, (questForm.type===t) && styles.typeButtonTextActive]}>{t}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                    <TextInput 
-                      style={[styles.input, { width: '100%', marginBottom: 16 }]} 
-                      placeholder="Trophy Reward" 
-                      placeholderTextColor="#888" 
-                      keyboardType="numeric" 
-                      value={questForm.reward} 
-                      onChangeText={(t) => setQuestForm({ ...questForm, reward: t })} 
-                    />
-                    <View style={styles.modalButtons}>
-                      <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={async () => {
-                        const name = (questForm.name || '').trim();
-                        if (!name) return; 
-                        const reward = parseInt(questForm.reward || '0', 10) || 0;
-                        try {
-                          let imageUrl = null;
-                          if (questImageUri) {
-                            let uploaded = await uploadImage({ bucket: 'quest-images', fileUri: questImageUri, pathPrefix: `quests/${userData?.id || 'admin'}/` });
-                            if (!uploaded?.success && questImageBase64) {
-                              uploaded = await uploadImage({ bucket: 'quest-images', base64: questImageBase64, mimeType: 'image/jpeg', pathPrefix: `quests/${userData?.id || 'admin'}/` });
-                            }
-                            if (uploaded?.success) imageUrl = uploaded.url; 
-                            else {
-                              console.error('Quest image upload error:', uploaded?.error);
-                              Alert.alert('Quest', uploaded?.error ? `Error: ${uploaded.error}` : 'Image upload failed. Please check your network and try again.');
-                              return;
-                            }
-                          }
-                          const res = await (createQuest ? createQuest({ name, description: questForm.description || null, image_url: imageUrl, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
-                          if (res?.success) {
-                            Alert.alert('Quest', 'Created');
-                            setQuestForm({ name: '', description: '', reward: '10', type: 'daily' });
-                            setQuestImageUri('');
-                            setQuestImageBase64(null);
-                            setShowQuestForm(false);
-                            try {
-                              const list = await getAllQuests({ onlyActive: true });
-                              setAllQuests(Array.isArray(list) ? list : []);
-                            } catch (_) {}
-                          } else {
-                            console.error('Create quest error:', res?.error);
-                            Alert.alert('Quest', res?.error ? `Error: ${res.error}` : 'Failed');
-                          }
-                        } catch (e) {
-                          console.error('Create quest exception:', e);
-                          Alert.alert('Quest', e.message ? `Exception: ${e.message}` : 'Unknown exception.');
-                        }
-                      }}>
-                        <Text style={styles.modalButtonText}>Create</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setShowQuestForm(false)}>
-                        <Text style={styles.modalButtonText}>Cancel</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </ScrollView>
-                </View>
-              </View>
-            )}
-
-            {/* Story Creation Modal */}
-            {showStoryForm && (
-              <View style={styles.modalOverlay}>
-                <View style={[styles.modalContent, { width: '90%', maxHeight: '80%' }]}>
-                  <ScrollView showsVerticalScrollIndicator={false}>
-                    <Text style={styles.modalTitle}>➕ Add New Story</Text>
-                    <TextInput 
-                      style={[styles.input, { width: '100%', marginBottom: 12, minHeight: 80 }]} 
-                      placeholder="What's your story today?" 
-                      placeholderTextColor="#888" 
-                      value={storyText} 
-                      onChangeText={setStoryText} 
-                      multiline 
-                    />
-                    <View style={[styles.row, { marginBottom: 12 }]}>
-                      <TouchableOpacity style={[styles.storyActionButton, { flex: 1, marginRight: 5 }]} onPress={async () => {
-                        const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                        if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
-                        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-                        if (!result.canceled && result.assets?.[0]?.uri) {
-                          setStoryImageUri(result.assets[0].uri);
-                          setStoryImageBase64(result.assets[0].base64 || null);
-                        }
-                      }}>
-                        <Text style={styles.storyActionText}>📷 Photo</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.storyActionButton, { flex: 1, marginLeft: 5 }]} onPress={async () => {
-                        const cap = await ImagePicker.requestCameraPermissionsAsync();
-                        if (cap.status !== 'granted') { Alert.alert('Permission', 'Camera required'); return; }
-                        const result = await ImagePicker.launchCameraAsync({ quality: 0.8, base64: true });
-                        if (!result.canceled && result.assets?.[0]?.uri) {
-                          setStoryImageUri(result.assets[0].uri);
-                          setStoryImageBase64(result.assets[0].base64 || null);
-                        }
-                      }}>
-                        <Text style={styles.storyActionText}>📸 Camera</Text>
-                      </TouchableOpacity>
-                    </View>
-                    {!!storyImageUri && <Image source={{ uri: storyImageUri }} style={[styles.previewImage, { marginBottom: 12 }]} />}
-                    <View style={styles.modalButtons}>
-                      <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={async () => {
-                        await handleAddStory();
-                        await notifyStoryPosted();
-                        setShowStoryForm(false);
-                      }}>
-                        <Text style={styles.modalButtonText}>Publish</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setShowStoryForm(false)}>
-                        <Text style={styles.modalButtonText}>Cancel</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </ScrollView>
-                </View>
-              </View>
-            )}
-
-            {/* Story Detail Modal */}
-            {selectedStory && (
-              <View style={styles.modalOverlay}>
-                <View style={[styles.modalContent, { width: '90%', maxHeight: '80%' }]}>
-                  <ScrollView showsVerticalScrollIndicator={false}>
-                    <Text style={styles.modalTitle}>📖 Story Details</Text>
-                    <Text style={styles.storyAuthor}>By: {selectedStory.author}</Text>
-                    {selectedStory.media_url && (
-                      <Image 
-                        source={{ uri: selectedStory.media_url }} 
-                        style={[styles.previewImage, { marginVertical: 12 }]}
-                        onError={(e) => {
-                          console.log('Story detail image load error:', e.nativeEvent.error);
-                        }}
-                      />
-                    )}
-                    <Text style={[styles.questCardDescription, { fontSize: 16, marginBottom: 16 }]}>
-                      {selectedStory.content || 'No text content'}
-                    </Text>
-                    <Text style={[styles.questCardDescription, { fontSize: 12, marginBottom: 16 }]}>
-                      Posted: {new Date(selectedStory.created_at).toLocaleDateString()}
-                    </Text>
-                    {/* TODO: Add comments and likes here */}
-                    <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setSelectedStory(null)}>
-                      <Text style={styles.modalButtonText}>Close</Text>
-                    </TouchableOpacity>
-                  </ScrollView>
-                </View>
-              </View>
-            )}
-
             {/* Logout Button */}
             <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
               <Text style={styles.logoutButtonText}>🚪 Sign Out</Text>
@@ -1059,20 +1074,22 @@ const MainScreen = ({ userData, onLogout }) => {
         )}
   </ScrollView>
       {/* Bottom tabs */}
-      <View style={styles.bottomTabs}>
-        {[
-          { key: 'Chat', icon: '💬', label: 'Chat' },
-          { key: 'Stories', icon: '📚', label: 'Stories' },
-          { key: 'Leaderboard', icon: '🏆', label: 'Ranking' },
-          { key: 'Quests', icon: '🎯', label: 'Quests' },
-          { key: 'Profile', icon: '👤', label: 'Profile' }
-        ].map((tab) => (
-          <TouchableOpacity key={tab.key} style={[styles.bottomTab, page === tab.key && styles.bottomTabActive]} onPress={() => setPage(tab.key)}>
-            <Text style={[styles.bottomTabIcon, page === tab.key && styles.bottomTabIconActive]}>{tab.icon}</Text>
-            <Text style={[styles.bottomTabText, page === tab.key && styles.bottomTabTextActive]}>{tab.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {!['CreateQuest', 'CreateStory', 'CreateChat'].includes(page) && (
+        <View style={styles.bottomTabs}>
+          {[
+            { key: 'Chat', icon: '💬', label: 'Chat' },
+            { key: 'Stories', icon: '📚', label: 'Stories' },
+            { key: 'Leaderboard', icon: '🏆', label: 'Ranking' },
+            { key: 'Quests', icon: '🎯', label: 'Quests' },
+            { key: 'Profile', icon: '👤', label: 'Profile' }
+          ].map((tab) => (
+            <TouchableOpacity key={tab.key} style={[styles.bottomTab, page === tab.key && styles.bottomTabActive]} onPress={() => setPage(tab.key)}>
+              <Text style={[styles.bottomTabIcon, page === tab.key && styles.bottomTabIconActive]}>{tab.icon}</Text>
+              <Text style={[styles.bottomTabText, page === tab.key && styles.bottomTabTextActive]}>{tab.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -1875,6 +1892,315 @@ const styles = StyleSheet.create({
   },
   modalButtonText: {
     color: '#fff',
+    fontWeight: 'bold',
+  },
+
+  // WhatsApp-style Chat Design
+  whatsappHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: '#075e54',
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  whatsappTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  newChatButton: {
+    backgroundColor: '#25d366',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newChatButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  whatsappChatList: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  whatsappChatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e5e5',
+  },
+  whatsappAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#ddd',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  whatsappAvatarImg: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+  },
+  whatsappAvatarText: {
+    color: '#666',
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+  whatsappChatInfo: {
+    flex: 1,
+  },
+  whatsappChatHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  whatsappChatName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  whatsappChatTime: {
+    fontSize: 12,
+    color: '#999',
+  },
+  whatsappLastMessage: {
+    fontSize: 14,
+    color: '#666',
+  },
+  whatsappChatView: {
+    flex: 1,
+  },
+  whatsappChatViewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#075e54',
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  whatsappBackButton: {
+    marginRight: 16,
+  },
+  whatsappBackText: {
+    color: '#fff',
+    fontSize: 20,
+  },
+  whatsappChatAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#ddd',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  whatsappChatAvatarImg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  whatsappChatAvatarText: {
+    color: '#666',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  whatsappChatHeaderInfo: {
+    flex: 1,
+  },
+  whatsappChatHeaderName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  whatsappChatHeaderStatus: {
+    fontSize: 12,
+    color: '#ccc',
+  },
+  whatsappMenuButton: {
+    padding: 8,
+  },
+  whatsappMenuText: {
+    color: '#fff',
+    fontSize: 18,
+  },
+  whatsappMessageArea: {
+    flex: 1,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    maxHeight: 400,
+  },
+  whatsappMessage: {
+    maxWidth: '80%',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  whatsappMessageSent: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#dcf8c6',
+    borderBottomRightRadius: 4,
+  },
+  whatsappMessageReceived: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#fff',
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e5e5e5',
+  },
+  whatsappMessageSender: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#075e54',
+    marginBottom: 4,
+  },
+  whatsappMessageText: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 4,
+  },
+  whatsappMessageTime: {
+    fontSize: 10,
+    color: '#999',
+    alignSelf: 'flex-end',
+  },
+  whatsappInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 25,
+  },
+  whatsappInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+    maxHeight: 100,
+  },
+  whatsappSendButton: {
+    backgroundColor: '#25d366',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  whatsappSendText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+
+  // Full Page Styles
+  fullPageContainer: {
+    flex: 1,
+    backgroundColor: '#1a1a2e',
+  },
+  fullPageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: '#22224e',
+    borderBottomWidth: 1,
+    borderBottomColor: '#3b3b69',
+  },
+  backButton: {
+    marginRight: 16,
+    padding: 8,
+  },
+  backButtonText: {
+    color: '#4a90e2',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  fullPageTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  fullPageContent: {
+    flex: 1,
+    padding: 20,
+  },
+  fullPageInput: {
+    backgroundColor: '#22224e',
+    borderRadius: 8,
+    padding: 16,
+    color: '#fff',
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#3b3b69',
+  },
+  fullPageButton: {
+    backgroundColor: '#3b3b69',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+  },
+  fullPageButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  fullPagePreviewImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    backgroundColor: '#3b3b69',
+  },
+  fullPageSubmitButton: {
+    backgroundColor: '#4a90e2',
+    borderRadius: 8,
+    padding: 20,
+    alignItems: 'center',
+  },
+  fullPageSubmitButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+
+  // Compact Profile Styles
+  compactProfileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  compactStatsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+  },
+  quickActionsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  quickActionButton: {
+    flex: 1,
+    backgroundColor: '#3b3b69',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+  },
+  quickActionText: {
+    color: '#fff',
+    fontSize: 14,
     fontWeight: 'bold',
   },
   tab: {
