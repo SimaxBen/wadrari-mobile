@@ -261,8 +261,10 @@ const MainScreen = ({ userData, onLogout }) => {
   useEffect(() => {
     (async () => {
       for (const q of quests) {
+        console.log('Daily quest progress:', q);
         if (q.progress >= q.target && !autoCompleted.current.has(q.id)) {
           const res = await completeQuest({ userId: userData?.id, questId: q.id, reward: q.reward });
+          console.log('AutoCompleteQuest response:', res);
           if (res?.success) {
             autoCompleted.current.add(q.id);
           }
@@ -310,13 +312,14 @@ const MainScreen = ({ userData, onLogout }) => {
     setMessages((prev) => [...prev, optimistic]);
     try {
       const res = await sendMessage({ userId: userData?.id, content: text, chatId: activeChat?.id || null });
+      console.log('SendMessage response:', res);
       if (!res?.success || !res?.data) {
-        // rollback optimistic add on failure
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       } else {
         setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? res.data : m)));
       }
-    } catch (_) {
+    } catch (e) {
+      console.log('SendMessage error:', e);
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
     }
   };
@@ -336,12 +339,11 @@ const MainScreen = ({ userData, onLogout }) => {
     try {
       let mediaUrl = null;
       if (storyImageUri) {
-        // Try direct file upload first
         let upload = await uploadImage({ bucket: 'story-images', fileUri: storyImageUri, pathPrefix: `${userData?.id}/` });
-        // Fallback: use base64 captured from picker/camera
         if (!upload?.success && storyImageBase64) {
           upload = await uploadImage({ bucket: 'story-images', base64: storyImageBase64, mimeType: 'image/jpeg', pathPrefix: `${userData?.id}/` });
         }
+        console.log('Story upload response:', upload);
         if (!upload?.success) {
           Alert.alert('Upload failed', upload?.error || '');
           return;
@@ -349,6 +351,7 @@ const MainScreen = ({ userData, onLogout }) => {
         mediaUrl = upload.url;
       }
       const res = await addStory({ userId: userData?.id, content: storyText, mediaUrl });
+      console.log('AddStory response:', res);
       if (res?.success && res.data) {
         setStories((prev) => [{ ...res.data, author: userData?.username || 'Me' }, ...prev]);
         setStoryText('');
@@ -363,12 +366,18 @@ const MainScreen = ({ userData, onLogout }) => {
   };
 
   const handleCompleteQuest = async (q) => {
-    const res = await completeQuest({ userId: userData?.id, questId: q.id, reward: q.reward });
-    if (res?.success) {
-      Alert.alert('Quest', 'Completed! Trophies awarded.');
-      setQuests((prev) => prev.map((item) => item.id === q.id ? { ...item, progress: item.target } : item));
-    } else if (res?.error) {
-      Alert.alert('Quest', res.error);
+    try {
+      const res = await completeQuest({ userId: userData?.id, questId: q.id, reward: q.reward });
+      console.log('CompleteQuest response:', res);
+      if (res?.success) {
+        Alert.alert('Quest', 'Completed! Trophies awarded.');
+        setQuests((prev) => prev.map((item) => item.id === q.id ? { ...item, progress: item.target } : item));
+      } else if (res?.error) {
+        const msg = /permission|denied|rls|network|fail/i.test(res.error) ? 'Quest completion failed: ' + res.error : res.error;
+        Alert.alert('Quest', msg);
+      }
+    } catch (e) {
+      Alert.alert('Quest', 'Error: ' + e.message);
     }
   };
 
@@ -701,6 +710,7 @@ const MainScreen = ({ userData, onLogout }) => {
                 }
                 if (uploaded?.success) {
                   const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl: uploaded.url });
+                  console.log('UpdateUserAvatar response:', resp);
                   if (resp?.success) {
                     setProfileAvatarUrl(uploaded.url);
                     setProfile((p) => p ? { ...p, avatar_url: uploaded.url } : p);
