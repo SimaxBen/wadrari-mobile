@@ -232,6 +232,7 @@ export const subscribeToMessages = (callback) => {
           id: row.id,
           message: row.content,
           user_id: row.sender_id,
+          chat_id: row.chat_id || null,
           username,
           created_at: row.created_at,
           profiles: { username }
@@ -388,14 +389,24 @@ export const getMessagesByChat = async ({ chatId, limit = 100 }) => {
 };
 
 // ==================== Storage and Stories ====================
-export const uploadImage = async ({ bucket, fileUri, pathPrefix = '' }) => {
+export const uploadImage = async ({ bucket, fileUri, base64 = null, mimeType = 'image/jpeg', pathPrefix = '' }) => {
   try {
-    if (!bucket || !fileUri) throw new Error('bucket and fileUri required');
-    const res = await fetch(fileUri);
-    const blob = await res.blob();
-    const ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
+    if (!bucket || (!fileUri && !base64)) throw new Error('bucket and file source required');
+    let blob;
+    let ext = 'jpg';
+    if (base64) {
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+      const res = await fetch(dataUrl);
+      blob = await res.blob();
+      ext = (mimeType && mimeType.split('/')[1]) || 'jpg';
+    } else {
+      const res = await fetch(fileUri);
+      blob = await res.blob();
+      ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
+      if (!mimeType) mimeType = blob.type || 'image/jpeg';
+    }
     const filename = `${pathPrefix}${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const { data, error } = await supabase.storage.from(bucket).upload(filename, blob, { contentType: blob.type || 'image/jpeg', upsert: false });
+    const { data, error } = await supabase.storage.from(bucket).upload(filename, blob, { contentType: mimeType || 'image/jpeg', upsert: false });
     if (error) throw error;
     const { data: pub } = supabase.storage.from(bucket).getPublicUrl(data.path);
     return { success: true, url: pub.publicUrl };
@@ -553,6 +564,33 @@ export const getStoryComments = async ({ storyId }) => {
     return list.map(c => ({ ...c, username: nameMap[c.user_id] || null }));
   } catch (e) {
     return [];
+  }
+};
+
+// ==================== Profile and Chats media updates ====================
+export const updateUserAvatar = async ({ userId, avatarUrl }) => {
+  try {
+    if (!userId || !avatarUrl) throw new Error('Missing fields');
+    await supabase
+      .from('users')
+      .update({ avatar_url: avatarUrl, updated_at: new Date().toISOString() })
+      .eq('id', userId);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+
+export const updateChatImage = async ({ chatId, imageUrl }) => {
+  try {
+    if (!chatId || !imageUrl) throw new Error('Missing fields');
+    await supabase
+      .from('chats')
+      .update({ image_url: imageUrl, updated_at: new Date().toISOString() })
+      .eq('id', chatId);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
   }
 };
 

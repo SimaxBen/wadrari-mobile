@@ -27,6 +27,8 @@ let getChats = async () => [];
 let createChat = async () => ({ success: false });
 let getAllQuests = async () => [];
 let createQuest = async () => ({ success: false });
+let updateUserAvatar = async () => ({ success: false });
+let updateChatImage = async () => ({ success: false });
 
 try {
   const supabaseModule = require('./src/services/supabase');
@@ -43,7 +45,7 @@ try {
     if (supabaseModule.addStoryComment) addStoryComment = supabaseModule.addStoryComment;
     if (supabaseModule.likeStory) likeStory = supabaseModule.likeStory;
     if (supabaseModule.unlikeStory) unlikeStory = supabaseModule.unlikeStory;
-    if (supabaseModule.getUserLikesForStories) getUserLikesForStories = supabaseModule.getUserLikesForStories;
+  if (supabaseModule.getUserLikesForStories) getUserLikesForStories = supabaseModule.getUserLikesForStories;
   if (supabaseModule.getStoryReactions) getStoryReactions = supabaseModule.getStoryReactions;
     if (supabaseModule.getLeaderboard) getLeaderboard = supabaseModule.getLeaderboard;
     if (supabaseModule.getQuestsForUser) getQuestsForUser = supabaseModule.getQuestsForUser;
@@ -53,6 +55,8 @@ try {
   if (supabaseModule.createChat) createChat = supabaseModule.createChat;
   if (supabaseModule.getAllQuests) getAllQuests = supabaseModule.getAllQuests;
     if (supabaseModule.createQuest) createQuest = supabaseModule.createQuest;
+  if (supabaseModule.updateUserAvatar) updateUserAvatar = supabaseModule.updateUserAvatar;
+  if (supabaseModule.updateChatImage) updateChatImage = supabaseModule.updateChatImage;
   }
 } catch (error) {
   // Silent failure
@@ -181,9 +185,12 @@ const MainScreen = ({ userData, onLogout }) => {
   const [chats, setChats] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
   const [newChatName, setNewChatName] = useState('');
+  const [updatingAvatar, setUpdatingAvatar] = useState(false);
+  const [updatingChatImage, setUpdatingChatImage] = useState(false);
   const [storyText, setStoryText] = useState('');
   const [storyImageUri, setStoryImageUri] = useState('');
   const [seasonName, setSeasonName] = useState('Season 1');
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState(userData?.avatar_url || null);
   const autoCompleted = useRef(new Set());
   const [storyComments, setStoryComments] = useState({}); // storyId -> comments[]
   const [storyLikes, setStoryLikes] = useState({}); // storyId -> like count
@@ -215,7 +222,10 @@ const MainScreen = ({ userData, onLogout }) => {
       try {
         unsubscribe = subscribeToMessages((msg) => {
           if (!msg) return;
-          setMessages((prev) => [...prev, msg]);
+          // Only append messages for the active chat (or global if no activeChat)
+          if (!activeChat || msg.chat_id === activeChat?.id || (!msg.chat_id && !activeChat)) {
+            setMessages((prev) => [...prev, msg]);
+          }
         });
       } catch (_) {}
       // Prefetch likes for visible stories
@@ -314,7 +324,22 @@ const MainScreen = ({ userData, onLogout }) => {
     try {
       let mediaUrl = null;
       if (storyImageUri) {
-        const upload = await uploadImage({ bucket: 'story-images', fileUri: storyImageUri, pathPrefix: `${userData?.id}/` });
+        // Try direct file upload first
+        let upload = await uploadImage({ bucket: 'story-images', fileUri: storyImageUri, pathPrefix: `${userData?.id}/` });
+        // Fallback: read base64 from picker asset (ImagePicker already gives us asset, but to be safe try to re-open)
+        if (!upload?.success) {
+          try {
+            const res = await ImagePicker.getMediaLibraryPermissionsAsync();
+            if (res.status === 'granted') {
+              // attempt read as base64 by reselecting minimal
+              const again = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
+              const asset = (!again.canceled && again.assets && again.assets[0]) ? again.assets[0] : null;
+              if (asset?.base64) {
+                upload = await uploadImage({ bucket: 'story-images', base64: asset.base64, mimeType: asset.type === 'video' ? 'video/mp4' : 'image/jpeg', pathPrefix: `${userData?.id}/` });
+              }
+            }
+          } catch (_) {}
+        }
         if (!upload?.success) {
           Alert.alert('Upload failed', upload?.error || '');
           return;
@@ -423,9 +448,36 @@ const MainScreen = ({ userData, onLogout }) => {
             )}
             {activeChat && (
               <View>
-                <View style={styles.row}>
-                  <TouchableOpacity onPress={() => setActiveChat(null)} style={[styles.pill, { marginBottom: 10 }]}><Text style={styles.pillText}>⬅ Back</Text></TouchableOpacity>
-                  <Text style={[styles.sectionTitle, { marginLeft: 10 }]}>{activeChat.name}</Text>
+                <View style={[styles.row, { justifyContent: 'space-between' }]}>
+                  <View style={[styles.row, { flex: 1 }]}>
+                    <TouchableOpacity onPress={() => setActiveChat(null)} style={[styles.pill, { marginBottom: 10 }]}><Text style={styles.pillText}>⬅ Back</Text></TouchableOpacity>
+                    <Text style={[styles.sectionTitle, { marginLeft: 10 }]}>{activeChat.name}</Text>
+                  </View>
+                  <TouchableOpacity disabled={updatingChatImage} style={[styles.pill, { marginBottom: 10 }]} onPress={async () => {
+                    try {
+                      const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                      if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
+                      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
+                      const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
+                      if (!asset) return;
+                      setUpdatingChatImage(true);
+                      let uploaded = await uploadImage({ bucket: 'group-images', fileUri: asset.uri, pathPrefix: `${activeChat.id}/` });
+                      if (!uploaded?.success && asset.base64) {
+                        uploaded = await uploadImage({ bucket: 'group-images', base64: asset.base64, mimeType: 'image/jpeg', pathPrefix: `${activeChat.id}/` });
+                      }
+                      if (uploaded?.success) {
+                        await updateChatImage({ chatId: activeChat.id, imageUrl: uploaded.url });
+                        setChats((prev) => prev.map((x) => x.id === activeChat.id ? { ...x, image_url: uploaded.url } : x));
+                        setActiveChat((prev) => prev ? { ...prev, image_url: uploaded.url } : prev);
+                        Alert.alert('Group', 'Image updated.');
+                      } else {
+                        Alert.alert('Group', uploaded?.error || 'Upload failed');
+                      }
+                    } catch (e) {
+                    } finally { setUpdatingChatImage(false); }
+                  }}>
+                    <Text style={styles.pillText}>{updatingChatImage ? 'Updating…' : 'Change Photo'}</Text>
+                  </TouchableOpacity>
                 </View>
                 {messages.map((m) => (
                   <Text key={m.id} style={styles.listItem}>
@@ -451,7 +503,7 @@ const MainScreen = ({ userData, onLogout }) => {
               <TouchableOpacity style={[styles.loginButton, { flex: 1, marginRight: 10 }]} onPress={async () => {
                 const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
                 if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
-                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
                 if (!result.canceled && result.assets?.[0]?.uri) setStoryImageUri(result.assets[0].uri);
               }}>
                 <Text style={styles.loginButtonText}>Pick Image</Text>
@@ -459,7 +511,7 @@ const MainScreen = ({ userData, onLogout }) => {
               <TouchableOpacity style={[styles.loginButton, { flex: 1 }]} onPress={async () => {
                 const cap = await ImagePicker.requestCameraPermissionsAsync();
                 if (cap.status !== 'granted') { Alert.alert('Permission', 'Camera required'); return; }
-                const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+                const result = await ImagePicker.launchCameraAsync({ quality: 0.8, base64: true });
                 if (!result.canceled && result.assets?.[0]?.uri) setStoryImageUri(result.assets[0].uri);
               }}>
                 <Text style={styles.loginButtonText}>Camera</Text>
@@ -527,6 +579,9 @@ const MainScreen = ({ userData, onLogout }) => {
               {allQuests.map((q) => (
                 <View key={q.id} style={{ marginBottom: 8 }}>
                   <Text style={styles.listItem}><Text style={styles.bold}>{q.name}</Text> — {q.description || ''} (+{q.trophy_reward || 0}🏆)</Text>
+                  {q.image_url ? (
+                    <Image source={{ uri: q.image_url }} style={{ width: '100%', height: 160, borderRadius: 8, marginTop: 6 }} />
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -536,12 +591,20 @@ const MainScreen = ({ userData, onLogout }) => {
                 <Text style={styles.sectionTitle}>Create Quest</Text>
                 <TextInput style={[styles.input, { width: '100%' }]} placeholder="Name" placeholderTextColor="#888" value={questForm.name} onChangeText={(t) => setQuestForm({ ...questForm, name: t })} />
                 <TextInput style={[styles.input, { width: '100%' }]} placeholder="Description" placeholderTextColor="#888" value={questForm.description} onChangeText={(t) => setQuestForm({ ...questForm, description: t })} />
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="Image URL (optional)" placeholderTextColor="#888" value={questForm.image_url || ''} onChangeText={(t) => setQuestForm({ ...questForm, image_url: t })} />
+                <View style={[styles.row, { marginBottom: 10 }]}> 
+                  {['daily','weekly','one_time'].map((t) => (
+                    <TouchableOpacity key={t} style={[styles.pill, (questForm.type===t) && styles.pillActive]} onPress={() => setQuestForm({ ...questForm, type: t })}>
+                      <Text style={[styles.pillText, (questForm.type===t) && styles.pillTextActive]}>{t}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
                 <TextInput style={[styles.input, { width: '100%' }]} placeholder="Reward (trophies)" placeholderTextColor="#888" keyboardType="numeric" value={questForm.reward} onChangeText={(t) => setQuestForm({ ...questForm, reward: t })} />
                 <TouchableOpacity style={styles.loginButton} onPress={async () => {
                   const name = (questForm.name || '').trim();
                   if (!name) return; const reward = parseInt(questForm.reward || '0', 10) || 0;
                   try {
-                    const res = await (createQuest ? createQuest({ name, description: questForm.description || null, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
+                    const res = await (createQuest ? createQuest({ name, description: questForm.description || null, image_url: questForm.image_url || null, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
                     if (res?.success) {
                       Alert.alert('Quest', 'Created');
                       setQuestForm({ name: '', description: '', reward: '10', type: 'daily' });
@@ -566,7 +629,7 @@ const MainScreen = ({ userData, onLogout }) => {
             {/* Fixed header with avatar and name */}
             <View style={{ alignItems: 'center', marginBottom: 10 }}>
               <View style={styles.userAvatarLarge}>
-                {userData?.avatar_url ? <Image source={{ uri: userData.avatar_url }} style={styles.userAvatarImgLarge} /> : <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0]}</Text>}
+                {(profileAvatarUrl || userData?.avatar_url) ? <Image source={{ uri: profileAvatarUrl || userData.avatar_url }} style={styles.userAvatarImgLarge} /> : <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0]}</Text>}
               </View>
               <Text style={[styles.title, { marginBottom: 0 }]}>{userData?.username}</Text>
             </View>
@@ -580,9 +643,40 @@ const MainScreen = ({ userData, onLogout }) => {
             {quests.map((q) => (
               <View key={q.id} style={{ marginBottom: 10 }}>
                 <Text style={styles.listItem}><Text style={styles.bold}>{q.title}</Text> — {q.description} • {q.progress}/{q.target} (+{q.reward}🏆)</Text>
-                {q.progress >= q.target && <Text style={{ color: '#00ff88' }}>Completed</Text>}
+                {q.progress >= q.target ? (
+                  <Text style={{ color: '#00ff88' }}>Completed</Text>
+                ) : (
+                  <TouchableOpacity style={[styles.pill, { alignSelf: 'flex-start' }]} onPress={() => handleCompleteQuest(q)}>
+                    <Text style={styles.pillText}>Complete</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ))}
+            {/* Change avatar */}
+            <TouchableOpacity style={[styles.pill, { alignSelf: 'center', marginTop: 6 }]} onPress={async () => {
+              try {
+                const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
+                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
+                const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
+                if (!asset) return;
+                setUpdatingAvatar(true);
+                let uploaded = await uploadImage({ bucket: 'profile-avatars', fileUri: asset.uri, pathPrefix: `${userData?.id}/` });
+                if (!uploaded?.success && asset.base64) {
+                  uploaded = await uploadImage({ bucket: 'profile-avatars', base64: asset.base64, mimeType: 'image/jpeg', pathPrefix: `${userData?.id}/` });
+                }
+                if (uploaded?.success) {
+                  await updateUserAvatar({ userId: userData?.id, avatarUrl: uploaded.url });
+                  setProfileAvatarUrl(uploaded.url);
+                  Alert.alert('Profile', 'Avatar updated.');
+                } else {
+                  Alert.alert('Profile', uploaded?.error || 'Upload failed');
+                }
+              } catch (e) {
+              } finally { setUpdatingAvatar(false); }
+            }}>
+              <Text style={styles.pillText}>Change Avatar</Text>
+            </TouchableOpacity>
             {!!badges.length && (
               <View style={{ marginTop: 10 }}>
                 <Text style={styles.sectionTitle}>🏅 Badges</Text>
@@ -600,7 +694,7 @@ const MainScreen = ({ userData, onLogout }) => {
             </TouchableOpacity>
           </View>
         )}
-      </ScrollView>
+  </ScrollView>
       {/* Bottom tabs */}
       <View style={styles.bottomTabs}>
         {['Chat','Stories','Leaderboard','Quests','Profile'].map((p) => (
