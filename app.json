@@ -1,8 +1,8 @@
 {
   "expo": {
-  "name": "Wadrari",
+  "name": "wadrari1",
   "slug": "wadrari-mobile",
-  "version": "1.0.1",
+      "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
