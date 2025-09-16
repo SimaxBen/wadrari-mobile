@@ -759,3 +759,19 @@ export const resetSeasonTrophies = async ({ adminUsername }) => {
     return { success: false, error: e.message };
   }
 };
+
+// ==================== User Profile ====================
+export const getUserProfile = async ({ userId }) => {
+  try {
+    if (!userId) throw new Error('userId required');
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, username, trophies, seasonal_trophies, avatar_url, current_streak')
+      .eq('id', userId)
+      .single();
+    if (error) throw error;
+    return { success: true, data };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};

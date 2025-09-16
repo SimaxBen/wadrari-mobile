@@ -29,6 +29,7 @@ let getAllQuests = async () => [];
 let createQuest = async () => ({ success: false });
 let updateUserAvatar = async () => ({ success: false });
 let updateChatImage = async () => ({ success: false });
+let getUserProfile = async () => ({ success: false });
 
 try {
   const supabaseModule = require('./src/services/supabase');
@@ -57,6 +58,7 @@ try {
     if (supabaseModule.createQuest) createQuest = supabaseModule.createQuest;
   if (supabaseModule.updateUserAvatar) updateUserAvatar = supabaseModule.updateUserAvatar;
   if (supabaseModule.updateChatImage) updateChatImage = supabaseModule.updateChatImage;
+  if (supabaseModule.getUserProfile) getUserProfile = supabaseModule.getUserProfile;
   }
 } catch (error) {
   // Silent failure
@@ -189,8 +191,10 @@ const MainScreen = ({ userData, onLogout }) => {
   const [updatingChatImage, setUpdatingChatImage] = useState(false);
   const [storyText, setStoryText] = useState('');
   const [storyImageUri, setStoryImageUri] = useState('');
+  const [storyImageBase64, setStoryImageBase64] = useState(null);
   const [seasonName, setSeasonName] = useState('Season 1');
   const [profileAvatarUrl, setProfileAvatarUrl] = useState(userData?.avatar_url || null);
+  const [profile, setProfile] = useState(null);
   const autoCompleted = useRef(new Set());
   const [storyComments, setStoryComments] = useState({}); // storyId -> comments[]
   const [storyLikes, setStoryLikes] = useState({}); // storyId -> like count
@@ -198,6 +202,8 @@ const MainScreen = ({ userData, onLogout }) => {
   const [newCommentText, setNewCommentText] = useState('');
   const [questForm, setQuestForm] = useState({ name: '', description: '', reward: '10', type: 'daily' });
   const [badges, setBadges] = useState([]);
+  const [questImageUri, setQuestImageUri] = useState('');
+  const [questImageBase64, setQuestImageBase64] = useState(null);
 
   useEffect(() => {
     let unsubscribe = null;
@@ -280,6 +286,12 @@ const MainScreen = ({ userData, onLogout }) => {
           setBadges(Array.isArray(b) ? b : []);
         } catch (_) {}
       }
+      if (page === 'Profile' && userData?.id && typeof getUserProfile === 'function') {
+        try {
+          const res = await getUserProfile({ userId: userData.id });
+          if (res?.success) setProfile(res.data);
+        } catch (_) {}
+      }
     })();
   }, [page]);
 
@@ -326,19 +338,9 @@ const MainScreen = ({ userData, onLogout }) => {
       if (storyImageUri) {
         // Try direct file upload first
         let upload = await uploadImage({ bucket: 'story-images', fileUri: storyImageUri, pathPrefix: `${userData?.id}/` });
-        // Fallback: read base64 from picker asset (ImagePicker already gives us asset, but to be safe try to re-open)
-        if (!upload?.success) {
-          try {
-            const res = await ImagePicker.getMediaLibraryPermissionsAsync();
-            if (res.status === 'granted') {
-              // attempt read as base64 by reselecting minimal
-              const again = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-              const asset = (!again.canceled && again.assets && again.assets[0]) ? again.assets[0] : null;
-              if (asset?.base64) {
-                upload = await uploadImage({ bucket: 'story-images', base64: asset.base64, mimeType: asset.type === 'video' ? 'video/mp4' : 'image/jpeg', pathPrefix: `${userData?.id}/` });
-              }
-            }
-          } catch (_) {}
+        // Fallback: use base64 captured from picker/camera
+        if (!upload?.success && storyImageBase64) {
+          upload = await uploadImage({ bucket: 'story-images', base64: storyImageBase64, mimeType: 'image/jpeg', pathPrefix: `${userData?.id}/` });
         }
         if (!upload?.success) {
           Alert.alert('Upload failed', upload?.error || '');
@@ -348,9 +350,10 @@ const MainScreen = ({ userData, onLogout }) => {
       }
       const res = await addStory({ userId: userData?.id, content: storyText, mediaUrl });
       if (res?.success && res.data) {
-        setStories((prev) => [res.data, ...prev]);
+        setStories((prev) => [{ ...res.data, author: userData?.username || 'Me' }, ...prev]);
         setStoryText('');
         setStoryImageUri('');
+        setStoryImageBase64(null);
       } else if (res?.error) {
         Alert.alert('Story failed', res.error);
       }
@@ -504,7 +507,10 @@ const MainScreen = ({ userData, onLogout }) => {
                 const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
                 if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
                 const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-                if (!result.canceled && result.assets?.[0]?.uri) setStoryImageUri(result.assets[0].uri);
+                if (!result.canceled && result.assets?.[0]?.uri) {
+                  setStoryImageUri(result.assets[0].uri);
+                  setStoryImageBase64(result.assets[0].base64 || null);
+                }
               }}>
                 <Text style={styles.loginButtonText}>Pick Image</Text>
               </TouchableOpacity>
@@ -512,7 +518,10 @@ const MainScreen = ({ userData, onLogout }) => {
                 const cap = await ImagePicker.requestCameraPermissionsAsync();
                 if (cap.status !== 'granted') { Alert.alert('Permission', 'Camera required'); return; }
                 const result = await ImagePicker.launchCameraAsync({ quality: 0.8, base64: true });
-                if (!result.canceled && result.assets?.[0]?.uri) setStoryImageUri(result.assets[0].uri);
+                if (!result.canceled && result.assets?.[0]?.uri) {
+                  setStoryImageUri(result.assets[0].uri);
+                  setStoryImageBase64(result.assets[0].base64 || null);
+                }
               }}>
                 <Text style={styles.loginButtonText}>Camera</Text>
               </TouchableOpacity>
@@ -591,7 +600,18 @@ const MainScreen = ({ userData, onLogout }) => {
                 <Text style={styles.sectionTitle}>Create Quest</Text>
                 <TextInput style={[styles.input, { width: '100%' }]} placeholder="Name" placeholderTextColor="#888" value={questForm.name} onChangeText={(t) => setQuestForm({ ...questForm, name: t })} />
                 <TextInput style={[styles.input, { width: '100%' }]} placeholder="Description" placeholderTextColor="#888" value={questForm.description} onChangeText={(t) => setQuestForm({ ...questForm, description: t })} />
-                <TextInput style={[styles.input, { width: '100%' }]} placeholder="Image URL (optional)" placeholderTextColor="#888" value={questForm.image_url || ''} onChangeText={(t) => setQuestForm({ ...questForm, image_url: t })} />
+                <View style={styles.row}>
+                  <TouchableOpacity style={[styles.loginButton, { flex: 1 }]} onPress={async () => {
+                    const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                    if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
+                    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
+                    const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
+                    if (asset) { setQuestImageUri(asset.uri); setQuestImageBase64(asset.base64 || null); }
+                  }}>
+                    <Text style={styles.loginButtonText}>Pick Quest Image</Text>
+                  </TouchableOpacity>
+                </View>
+                {!!questImageUri && <Image source={{ uri: questImageUri }} style={{ width: '100%', height: 140, borderRadius: 8, marginVertical: 10 }} />}
                 <View style={[styles.row, { marginBottom: 10 }]}> 
                   {['daily','weekly','one_time'].map((t) => (
                     <TouchableOpacity key={t} style={[styles.pill, (questForm.type===t) && styles.pillActive]} onPress={() => setQuestForm({ ...questForm, type: t })}>
@@ -604,10 +624,20 @@ const MainScreen = ({ userData, onLogout }) => {
                   const name = (questForm.name || '').trim();
                   if (!name) return; const reward = parseInt(questForm.reward || '0', 10) || 0;
                   try {
-                    const res = await (createQuest ? createQuest({ name, description: questForm.description || null, image_url: questForm.image_url || null, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
+                    let imageUrl = null;
+                    if (questImageUri) {
+                      let uploaded = await uploadImage({ bucket: 'quest-images', fileUri: questImageUri, pathPrefix: `quests/${userData?.id || 'admin'}/` });
+                      if (!uploaded?.success && questImageBase64) {
+                        uploaded = await uploadImage({ bucket: 'quest-images', base64: questImageBase64, mimeType: 'image/jpeg', pathPrefix: `quests/${userData?.id || 'admin'}/` });
+                      }
+                      if (uploaded?.success) imageUrl = uploaded.url; else { Alert.alert('Quest', uploaded?.error || 'Image upload failed'); return; }
+                    }
+                    const res = await (createQuest ? createQuest({ name, description: questForm.description || null, image_url: imageUrl, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
                     if (res?.success) {
                       Alert.alert('Quest', 'Created');
                       setQuestForm({ name: '', description: '', reward: '10', type: 'daily' });
+                      setQuestImageUri('');
+                      setQuestImageBase64(null);
                       try {
                         const list = await getAllQuests({ onlyActive: true });
                         setAllQuests(Array.isArray(list) ? list : []);
@@ -629,15 +659,19 @@ const MainScreen = ({ userData, onLogout }) => {
             {/* Fixed header with avatar and name */}
             <View style={{ alignItems: 'center', marginBottom: 10 }}>
               <View style={styles.userAvatarLarge}>
-                {(profileAvatarUrl || userData?.avatar_url) ? <Image source={{ uri: profileAvatarUrl || userData.avatar_url }} style={styles.userAvatarImgLarge} /> : <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0]}</Text>}
+                {(profile?.avatar_url || profileAvatarUrl || userData?.avatar_url) ? (
+                  <Image source={{ uri: profileAvatarUrl || profile?.avatar_url || userData.avatar_url }} style={styles.userAvatarImgLarge} />
+                ) : (
+                  <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0]}</Text>
+                )}
               </View>
-              <Text style={[styles.title, { marginBottom: 0 }]}>{userData?.username}</Text>
+              <Text style={[styles.title, { marginBottom: 0 }]}>{profile?.username || userData?.username}</Text>
             </View>
             {/* Stats row */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 10 }}>
-              <Text style={styles.profileItem}>🏆 {userData?.trophies || 0}</Text>
-              <Text style={styles.profileItem}>🌟 {userData?.seasonal_trophies || 0}</Text>
-              <Text style={styles.profileItem}>🔥 {userData?.current_streak || 0}d</Text>
+              <Text style={styles.profileItem}>🏆 {profile?.trophies ?? userData?.trophies ?? 0}</Text>
+              <Text style={styles.profileItem}>🌟 {profile?.seasonal_trophies ?? userData?.seasonal_trophies ?? 0}</Text>
+              <Text style={styles.profileItem}>🔥 {profile?.current_streak ?? userData?.current_streak ?? 0}d</Text>
             </View>
             <Text style={styles.sectionTitle}>🎯 Daily Quests</Text>
             {quests.map((q) => (
@@ -666,9 +700,14 @@ const MainScreen = ({ userData, onLogout }) => {
                   uploaded = await uploadImage({ bucket: 'profile-avatars', base64: asset.base64, mimeType: 'image/jpeg', pathPrefix: `${userData?.id}/` });
                 }
                 if (uploaded?.success) {
-                  await updateUserAvatar({ userId: userData?.id, avatarUrl: uploaded.url });
-                  setProfileAvatarUrl(uploaded.url);
-                  Alert.alert('Profile', 'Avatar updated.');
+                  const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl: uploaded.url });
+                  if (resp?.success) {
+                    setProfileAvatarUrl(uploaded.url);
+                    setProfile((p) => p ? { ...p, avatar_url: uploaded.url } : p);
+                    Alert.alert('Profile', 'Avatar updated.');
+                  } else {
+                    Alert.alert('Profile', resp?.error || 'Update failed');
+                  }
                 } else {
                   Alert.alert('Profile', uploaded?.error || 'Upload failed');
                 }
