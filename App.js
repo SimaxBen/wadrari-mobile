@@ -178,6 +178,7 @@ const LoginScreen = ({ onLogin }) => {
 // Main App Screen Component  
 const MainScreen = ({ userData, onLogout }) => {
   const [page, setPage] = useState('Chat'); // Chat | Stories | Leaderboard | Quests | Profile
+  const [questModal, setQuestModal] = useState({ visible: false, quest: null });
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [stories, setStories] = useState([]);
@@ -345,7 +346,8 @@ const MainScreen = ({ userData, onLogout }) => {
         }
         console.log('Story upload response:', upload);
         if (!upload?.success) {
-          Alert.alert('Upload failed', upload?.error || '');
+          console.error('Story image upload error:', upload?.error);
+          Alert.alert('Upload failed', upload?.error ? `Error: ${upload.error}` : 'Unknown error. Please check your network and try again.');
           return;
         }
         mediaUrl = upload.url;
@@ -358,25 +360,36 @@ const MainScreen = ({ userData, onLogout }) => {
         setStoryImageUri('');
         setStoryImageBase64(null);
       } else if (res?.error) {
-        Alert.alert('Story failed', res.error);
+        console.error('Add story error:', res.error);
+        Alert.alert('Story failed', res.error ? `Error: ${res.error}` : 'Unknown error.');
       }
     } catch (e) {
-      Alert.alert('Story failed', e.message);
+      console.error('Add story exception:', e);
+      Alert.alert('Story failed', e.message ? `Exception: ${e.message}` : 'Unknown exception.');
     }
   };
 
   const handleCompleteQuest = async (q) => {
+    setQuestModal({ visible: true, quest: q });
+  };
+
+  const confirmCompleteQuest = async () => {
+    const q = questModal.quest;
+    if (!q) return;
     try {
       const res = await completeQuest({ userId: userData?.id, questId: q.id, reward: q.reward });
       console.log('CompleteQuest response:', res);
       if (res?.success) {
-        Alert.alert('Quest', 'Completed! Trophies awarded.');
         setQuests((prev) => prev.map((item) => item.id === q.id ? { ...item, progress: item.target } : item));
+        setQuestModal({ visible: false, quest: null });
+        Alert.alert('Quest Completed', `You earned ${q.reward} trophies!`);
       } else if (res?.error) {
         const msg = /permission|denied|rls|network|fail/i.test(res.error) ? 'Quest completion failed: ' + res.error : res.error;
+        setQuestModal({ visible: false, quest: null });
         Alert.alert('Quest', msg);
       }
     } catch (e) {
+      setQuestModal({ visible: false, quest: null });
       Alert.alert('Quest', 'Error: ' + e.message);
     }
   };
@@ -483,9 +496,11 @@ const MainScreen = ({ userData, onLogout }) => {
                         setActiveChat((prev) => prev ? { ...prev, image_url: uploaded.url } : prev);
                         Alert.alert('Group', 'Image updated.');
                       } else {
-                        Alert.alert('Group', uploaded?.error || 'Upload failed');
+                        console.error('Group image upload error:', uploaded?.error);
+                        Alert.alert('Group', uploaded?.error ? `Error: ${uploaded.error}` : 'Upload failed. Please check your network and try again.');
                       }
                     } catch (e) {
+                      console.error('Group image upload exception:', e);
                     } finally { setUpdatingChatImage(false); }
                   }}>
                     <Text style={styles.pillText}>{updatingChatImage ? 'Updating…' : 'Change Photo'}</Text>
@@ -639,7 +654,11 @@ const MainScreen = ({ userData, onLogout }) => {
                       if (!uploaded?.success && questImageBase64) {
                         uploaded = await uploadImage({ bucket: 'quest-images', base64: questImageBase64, mimeType: 'image/jpeg', pathPrefix: `quests/${userData?.id || 'admin'}/` });
                       }
-                      if (uploaded?.success) imageUrl = uploaded.url; else { Alert.alert('Quest', uploaded?.error || 'Image upload failed'); return; }
+                      if (uploaded?.success) imageUrl = uploaded.url; else {
+                        console.error('Quest image upload error:', uploaded?.error);
+                        Alert.alert('Quest', uploaded?.error ? `Error: ${uploaded.error}` : 'Image upload failed. Please check your network and try again.');
+                        return;
+                      }
                     }
                     const res = await (createQuest ? createQuest({ name, description: questForm.description || null, image_url: imageUrl, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
                     if (res?.success) {
@@ -652,9 +671,13 @@ const MainScreen = ({ userData, onLogout }) => {
                         setAllQuests(Array.isArray(list) ? list : []);
                       } catch (_) {}
                     } else {
-                      Alert.alert('Quest', res?.error || 'Failed');
+                      console.error('Create quest error:', res?.error);
+                      Alert.alert('Quest', res?.error ? `Error: ${res.error}` : 'Failed');
                     }
-                  } catch (e) { Alert.alert('Quest', e.message); }
+                  } catch (e) {
+                    console.error('Create quest exception:', e);
+                    Alert.alert('Quest', e.message ? `Exception: ${e.message}` : 'Unknown exception.');
+                  }
                 }}>
                   <Text style={styles.loginButtonText}>Add</Text>
                 </TouchableOpacity>
@@ -695,6 +718,25 @@ const MainScreen = ({ userData, onLogout }) => {
                 )}
               </View>
             ))}
+            {/* Quest Completion Modal */}
+            {questModal.visible && questModal.quest && (
+              <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(30,30,60,0.95)', justifyContent: 'center', alignItems: 'center', zIndex: 99 }}>
+                <View style={{ backgroundColor: '#22224e', borderRadius: 16, padding: 24, alignItems: 'center', width: 300 }}>
+                  <Text style={{ fontSize: 22, color: '#4a90e2', fontWeight: 'bold', marginBottom: 10 }}>Complete Quest?</Text>
+                  <Text style={{ color: '#fff', marginBottom: 10 }}>{questModal.quest.title}</Text>
+                  <Text style={{ color: '#ccc', marginBottom: 20 }}>{questModal.quest.description}</Text>
+                  <Text style={{ color: '#00ff88', fontSize: 18, marginBottom: 20 }}>Reward: {questModal.quest.reward} 🏆</Text>
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <TouchableOpacity style={[styles.loginButton, { backgroundColor: '#4a90e2', flex: 1 }]} onPress={confirmCompleteQuest}>
+                      <Text style={styles.loginButtonText}>Confirm</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.loginButton, { backgroundColor: '#888', flex: 1 }]} onPress={() => setQuestModal({ visible: false, quest: null })}>
+                      <Text style={styles.loginButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
             {/* Change avatar */}
             <TouchableOpacity style={[styles.pill, { alignSelf: 'center', marginTop: 6 }]} onPress={async () => {
               try {
@@ -716,12 +758,15 @@ const MainScreen = ({ userData, onLogout }) => {
                     setProfile((p) => p ? { ...p, avatar_url: uploaded.url } : p);
                     Alert.alert('Profile', 'Avatar updated.');
                   } else {
-                    Alert.alert('Profile', resp?.error || 'Update failed');
+                    console.error('Update avatar error:', resp?.error);
+                    Alert.alert('Profile', resp?.error ? `Error: ${resp.error}` : 'Update failed.');
                   }
                 } else {
-                  Alert.alert('Profile', uploaded?.error || 'Upload failed');
+                  console.error('Profile image upload error:', uploaded?.error);
+                  Alert.alert('Profile', uploaded?.error ? `Error: ${uploaded.error}` : 'Upload failed. Please check your network and try again.');
                 }
               } catch (e) {
+                console.error('Profile image upload exception:', e);
               } finally { setUpdatingAvatar(false); }
             }}>
               <Text style={styles.pillText}>Change Avatar</Text>
