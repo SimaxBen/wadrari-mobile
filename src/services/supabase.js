@@ -407,10 +407,12 @@ export const uploadImage = async ({ bucket, fileUri, base64 = null, mimeType = '
     }
     const filename = `${pathPrefix}${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
     const { data, error } = await supabase.storage.from(bucket).upload(filename, blob, { contentType: mimeType || 'image/jpeg', upsert: false });
+    console.log('Supabase uploadImage:', { bucket, filename, mimeType, error, data });
     if (error) throw error;
     const { data: pub } = supabase.storage.from(bucket).getPublicUrl(data.path);
     return { success: true, url: pub.publicUrl };
   } catch (e) {
+    console.log('Supabase uploadImage error:', e);
     return { success: false, error: e.message };
   }
 };
@@ -460,41 +462,49 @@ export const completeQuest = async ({ userId, questId, reward = 0 }) => {
   try {
     if (!userId || !questId) throw new Error('userId and questId required');
     // Update trophies on users (RLS allows public update per policies)
-    const { data: user } = await supabase
+    const { data: user, error: userError } = await supabase
       .from('users')
       .select('trophies')
       .eq('id', userId)
       .single();
+    console.log('completeQuest: user fetch', { user, userError });
+    if (userError) throw userError;
     const newTrophies = (user?.trophies ?? 0) + (reward || 0);
-    await supabase
+    const { data: updateData, error: updateError } = await supabase
       .from('users')
       .update({ trophies: newTrophies, updated_at: new Date().toISOString() })
       .eq('id', userId);
+    console.log('completeQuest: user update', { updateData, updateError });
+    if (updateError) throw updateError;
 
     // Best-effort daily_activities bookkeeping (RLS permissive ALL)
     const today = new Date();
     const date = today.toISOString().slice(0, 10);
     try {
-      const { data: existing } = await supabase
+      const { data: existing, error: dailyError } = await supabase
         .from('daily_activities')
         .select('id, base_trophies_earned, bonus_trophies_earned')
         .eq('user_id', userId)
         .eq('activity_date', date)
         .maybeSingle();
+      console.log('completeQuest: daily_activities fetch', { existing, dailyError });
       if (existing?.id) {
-        await supabase
+        const { data: dailyUpdate, error: dailyUpdateError } = await supabase
           .from('daily_activities')
           .update({ base_trophies_earned: (existing.base_trophies_earned ?? 0) + (reward || 0), updated_at: new Date().toISOString() })
           .eq('id', existing.id);
+        console.log('completeQuest: daily_activities update', { dailyUpdate, dailyUpdateError });
       } else {
-        await supabase
+        const { data: dailyInsert, error: dailyInsertError } = await supabase
           .from('daily_activities')
           .insert([{ user_id: userId, activity_date: date, base_trophies_earned: reward || 0, created_at: new Date().toISOString() }]);
+        console.log('completeQuest: daily_activities insert', { dailyInsert, dailyInsertError });
       }
-    } catch (_) {}
+    } catch (e) { console.log('completeQuest: daily_activities error', e); }
 
     return { success: true };
   } catch (e) {
+    console.log('completeQuest error:', e);
     return { success: false, error: e.message };
   }
 };
