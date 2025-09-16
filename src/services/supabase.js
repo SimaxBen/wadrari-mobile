@@ -412,8 +412,8 @@ export const uploadImage = async ({ bucket, fileUri, base64 = null, mimeType = '
     const { data: pub } = supabase.storage.from(bucket).getPublicUrl(data.path);
     return { success: true, url: pub.publicUrl };
   } catch (e) {
-    console.log('Supabase uploadImage error:', e);
-    return { success: false, error: e.message };
+    console.log('Supabase uploadImage error:', e, JSON.stringify(e));
+    return { success: false, error: e.message, details: e };
   }
 };
 
