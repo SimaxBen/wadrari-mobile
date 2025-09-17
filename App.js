@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, StatusBar, Alert, ScrollView, Image, Modal, FlatList } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
@@ -252,7 +252,26 @@ const MainScreen = ({ userData, onLogout }) => {
   const storyList = Array.isArray(sts) ? sts : [];
   setStories(storyList);
         setLeaderboard(Array.isArray(lb) ? lb : []);
-        setQuests(Array.isArray(qs) ? qs : []);
+        let baseQuests = Array.isArray(qs) ? qs : [];
+        // fetch completion counts (daily) and merge progress if quest ids match
+        try {
+          if (typeof getUserQuestDailyCompletions === 'function') {
+            const comps = await getUserQuestDailyCompletions({ userId: userData.id });
+            if (Array.isArray(comps) && comps.length) {
+              const compMap = Object.fromEntries(comps.map(c => [c.quest_id, c]));
+              baseQuests = baseQuests.map(q => {
+                const c = compMap[q.id];
+                if (c) {
+                  // ensure progress reflects completion_count if greater
+                  const progress = Math.max(q.progress ?? 0, c.completion_count || 0);
+                  return { ...q, progress };
+                }
+                return q;
+              });
+            }
+          }
+        } catch(_) {}
+        setQuests(baseQuests);
         // Default to first chat (e.g., General)
   // Removed auto-opening first chat: user sees list first
       } catch (_) {}
@@ -273,12 +292,19 @@ const MainScreen = ({ userData, onLogout }) => {
           setMyLikedStories(Array.isArray(liked) ? liked : []);
         }
         // Like counts per story
-        for (const id of ids) {
-          try {
-            const reactions = typeof getStoryReactions === 'function' ? await getStoryReactions({ storyId: id }) : [];
-            const count = (reactions || []).filter(r => r.reaction_type === 'like').length;
-            setStoryLikes((prev) => ({ ...prev, [id]: count }));
-          } catch {}
+        if (typeof getStoryReactions === 'function') {
+          const reactionResults = await Promise.all(ids.map(async id => {
+            try {
+              const reactions = await getStoryReactions({ storyId: id });
+              const count = (reactions || []).filter(r => r.reaction_type === 'like').length;
+              return [id, count];
+            } catch { return [id, 0]; }
+          }));
+          setStoryLikes(prev => {
+            const updated = { ...prev };
+            reactionResults.forEach(([id, count]) => { updated[id] = count; });
+            return updated;
+          });
         }
       } catch (_) {}
     };
@@ -488,8 +514,8 @@ const MainScreen = ({ userData, onLogout }) => {
                 {/* WhatsApp-style header */}
                 <View style={styles.whatsappHeader}>
                   <Text style={styles.whatsappTitle}>Chats</Text>
-                  <TouchableOpacity style={styles.newChatButton} onPress={() => setPage('CreateChat')}>
-                    <Text style={styles.newChatButtonText}>➕</Text>
+                  <TouchableOpacity style={[styles.addButton,{paddingVertical:10,paddingHorizontal:16, marginBottom:0}]} onPress={()=> setShowCreateGroupModal(true)}>
+                    <Text style={styles.addButtonText}>➕ Group</Text>
                   </TouchableOpacity>
                 </View>
                 
@@ -511,7 +537,19 @@ const MainScreen = ({ userData, onLogout }) => {
                       <View style={styles.questCardCompactContent}>
                         <View style={{ flex:1 }}>
                           <Text style={styles.questCardTitle} numberOfLines={1}>{c.name}</Text>
-                          <Text style={styles.questCardMiniMeta} numberOfLines={1}>Chat • {c.last_message_at ? new Date(c.last_message_at).toLocaleDateString() : 'No msgs'}</Text>
+                          {(() => {
+                            // derive last message snippet from local messages state
+                            const last = [...messages]
+                              .filter(m => (c.id ? m.chat_id === c.id : !m.chat_id))
+                              .sort((a,b)=> new Date(b.created_at) - new Date(a.created_at))[0];
+                            const snippet = last ? (last.message || '').trim() : null;
+                            const display = snippet && snippet.length > 0 ? snippet : (c.last_message_at ? new Date(c.last_message_at).toLocaleDateString() : 'No msgs');
+                            return (
+                              <Text style={styles.questCardMiniMeta} numberOfLines={1}>
+                                {snippet ? `${last.username ? last.username+': ' : ''}${display}` : `Chat • ${display}`}
+                              </Text>
+                            );
+                          })()}
                         </View>
                         <Text style={styles.questProgressBadge}>Open</Text>
                       </View>
@@ -521,9 +559,6 @@ const MainScreen = ({ userData, onLogout }) => {
               </View>
             ) : (
               <View style={styles.whatsappChatView}>
-                <TouchableOpacity style={[styles.addButton,{alignSelf:'flex-start', marginBottom:12}]} onPress={()=> setShowCreateGroupModal(true)}>
-                  <Text style={styles.addButtonText}>➕ Add Group</Text>
-                </TouchableOpacity>
                 {/* WhatsApp-style chat header */}
                 <View style={styles.whatsappChatViewHeader}>
                   <TouchableOpacity onPress={() => setActiveChat(null)} style={styles.whatsappBackButton}>
@@ -771,6 +806,31 @@ const MainScreen = ({ userData, onLogout }) => {
                 }}>
                   <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Generating...' : '🎲 Generate Avatar'}</Text>
                 </TouchableOpacity>
+                <TouchableOpacity style={[styles.changeAvatarButton,{ marginTop:8, backgroundColor:'#2a3245' }]} onPress={async () => {
+                  try {
+                    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                    if (!perm.granted) { Alert.alert('Avatar','Permission denied'); return; }
+                    const img = await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, quality:0.7, base64:true });
+                    if (img.canceled) return;
+                    setUpdatingAvatar(true);
+                    const asset = img.assets[0];
+                    const upload = await uploadImage({ bucket:'profile-avatars', fileUri:asset.uri, base64:asset.base64||null, pathPrefix:`${userData?.id}/` });
+                    if (!upload?.success) throw new Error(upload?.error||'Upload failed');
+                    const newUrl = upload.url;
+                    const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl: newUrl });
+                    if (resp?.success) {
+                      setProfile(p => p ? { ...p, avatar_url:newUrl } : { avatar_url:newUrl });
+                      userData.avatar_url = newUrl;
+                      Alert.alert('Profile','Avatar updated');
+                    } else {
+                      Alert.alert('Profile', resp?.error || 'Update failed');
+                    }
+                  } catch(e){
+                    Alert.alert('Avatar', e.message);
+                  } finally { setUpdatingAvatar(false); }
+                }}>
+                  <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Uploading...' : '📤 Upload Picture'}</Text>
+                </TouchableOpacity>
                 <View style={{ marginLeft:16, flex:1, justifyContent:'center' }}>
                   <Text style={[styles.profileUsername, { textAlign:'left', marginTop:4 }]}>{profile?.username || userData?.username}</Text>
                   <Text style={[styles.profileJoinDate, { textAlign:'left' }]}>Joined {new Date(userData?.created_at || Date.now()).toLocaleDateString()}</Text>
@@ -1003,9 +1063,9 @@ const MainScreen = ({ userData, onLogout }) => {
                       const upload = await uploadImage({ bucket:'story-images', fileUri: storyImageUri, base64: storyImageBase64, pathPrefix:`${userData?.id}/` });
                       if (upload?.success) mediaUrl = upload.url; else throw new Error(upload?.error||'Upload failed');
                     }
-                    const res = await addStory({ content:storyText.trim(), author:userData?.username, mediaUrl });
-                    if (res?.success) {
-                      setStories(prev => [{ id:res.id, content:storyText.trim(), author:userData?.username, media_url:mediaUrl, created_at:new Date().toISOString() }, ...prev]);
+                    const res = await addStory({ userId:userData?.id, content:storyText.trim(), mediaUrl });
+                    if (res?.success && res.data) {
+                      setStories(prev => [{ ...res.data, author: userData?.username }, ...prev]);
                       setShowStoryCreateModal(false);
                       setStoryText(''); setStoryImageUri(''); setStoryImageBase64(null);
                       notifyStoryPosted(userData?.username||'Someone');
@@ -1033,7 +1093,20 @@ const MainScreen = ({ userData, onLogout }) => {
               <TextInput placeholder="Description" placeholderTextColor="#666" value={questForm.description} onChangeText={t=> setQuestForm(f=>({...f,description:t}))} multiline style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', minHeight:80, marginBottom:12 }} />
               <TextInput placeholder="Reward (trophies)" placeholderTextColor="#666" value={questForm.reward} onChangeText={t=> setQuestForm(f=>({...f,reward:t}))} keyboardType="numeric" style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', marginBottom:12 }} />
               <TextInput placeholder="Target (default 1)" placeholderTextColor="#666" value={questForm.target||''} onChangeText={t=> setQuestForm(f=>({...f,target:t}))} keyboardType="numeric" style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', marginBottom:12 }} />
-              <TextInput placeholder="Type (daily|repeatable|lifetime)" placeholderTextColor="#666" value={questForm.type} onChangeText={t=> setQuestForm(f=>({...f,type:t}))} style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', marginBottom:16 }} />
+              <View style={{ flexDirection:'row', marginBottom:16, gap:8 }}>
+                {['daily','repeatable','lifetime'].map(t => {
+                  const selected = questForm.type === t;
+                  return (
+                    <TouchableOpacity
+                      key={t}
+                      onPress={() => setQuestForm(f => ({ ...f, type:t }))}
+                      style={{ flex:1, backgroundColor: selected ? '#4a90e2' : '#1f2535', paddingVertical:12, borderRadius:12, borderWidth:1, borderColor: selected ? '#4a90e2' : '#2a3245', alignItems:'center' }}
+                    >
+                      <Text style={{ color:'#fff', fontSize:12, fontWeight:selected?'bold':'normal', textTransform:'capitalize' }}>{t}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
               {questImageUri ? (
                 <Image source={{ uri: questImageUri }} style={{ width:'100%', height:160, borderRadius:12, marginBottom:12 }} />
               ) : (
@@ -1052,9 +1125,9 @@ const MainScreen = ({ userData, onLogout }) => {
                       const upload = await uploadImage({ bucket:'quest-images', fileUri:questImageUri, base64:questImageBase64, pathPrefix:`${userData?.id}/` });
                       if (upload?.success) imageUrl = upload.url; else throw new Error(upload?.error||'Upload failed');
                     }
-                    const res = await createQuest({ name:questForm.name.trim(), description:questForm.description.trim(), reward:parseInt(questForm.reward)||0, trophy_reward:parseInt(questForm.reward)||0, quest_type:questForm.type||'daily', target: parseInt(questForm.target)||1, image_url:imageUrl });
-                    if (res?.success) {
-                      setAllQuests(prev => [{ id:res.id, name:questForm.name.trim(), description:questForm.description.trim(), reward:parseInt(questForm.reward)||0, trophy_reward:parseInt(questForm.reward)||0, quest_type:questForm.type||'daily', target: parseInt(questForm.target)||1, image_url:imageUrl }, ...prev]);
+                    const res = await createQuest({ name:questForm.name.trim(), description:questForm.description.trim(), trophy_reward:parseInt(questForm.reward)||0, quest_type:questForm.type||'daily', image_url:imageUrl, max_completions_per_day: questForm.target ? parseInt(questForm.target) : null, created_by: userData?.id });
+                    if (res?.success && res.data) {
+                      setAllQuests(prev => [res.data, ...prev]);
                       setShowCreateQuestModal(false);
                       setQuestForm({ name:'', description:'', reward:'10', type:'daily' }); setQuestImageUri(''); setQuestImageBase64(null);
                     } else { Alert.alert('Quest', res?.error||'Failed'); }
@@ -1095,9 +1168,9 @@ const MainScreen = ({ userData, onLogout }) => {
                     const upload = await uploadImage({ bucket:'group-images', fileUri:groupImageUri, base64:groupImageBase64, pathPrefix:`${userData?.id}/` });
                     if (upload?.success) imageUrl = upload.url; else throw new Error(upload?.error||'Upload failed');
                   }
-                  const res = await createChat({ name:newChatName.trim(), imageUrl });
-                  if (res?.success) {
-                    setChats(prev => [{ id:res.id, name:newChatName.trim(), image_url:imageUrl, created_at:new Date().toISOString() }, ...prev]);
+                  const res = await createChat({ name:newChatName.trim(), type:'group', created_by: userData?.id, image_url: imageUrl });
+                  if (res?.success && res.data) {
+                    setChats(prev => [res.data, ...prev]);
                     setShowCreateGroupModal(false); setNewChatName(''); setGroupImageUri(''); setGroupImageBase64(null);
                   } else { Alert.alert('Group', res?.error||'Failed'); }
                 } catch(e){ Alert.alert('Group', e.message); }

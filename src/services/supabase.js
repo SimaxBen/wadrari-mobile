@@ -403,6 +403,10 @@ export const uploadImage = async ({ bucket, fileUri, base64 = null, mimeType = '
   };
   try {
     if (!bucket || (!fileUri && !base64)) throw new Error('bucket and file source required');
+    if (!pathPrefix) {
+      // ensure a prefix so we avoid root clutter, helps duplicate filename issues (cause 7)
+      pathPrefix = 'uploads';
+    }
     // Normalize path prefix
     let safePrefix = pathPrefix || '';
     if (safePrefix && !safePrefix.endsWith('/')) safePrefix += '/';
@@ -426,12 +430,27 @@ export const uploadImage = async ({ bucket, fileUri, base64 = null, mimeType = '
     if (!blobInfo) throw new Error('Unable to prepare image data');
 
     const filename = `${safePrefix}${Date.now()}-${Math.random().toString(36).slice(2)}.${blobInfo.ext}`;
-    const { data, error } = await supabase.storage.from(bucket).upload(filename, blobInfo.blob, { contentType: mimeType || 'image/jpeg', upsert: false });
-    if (error) throw error;
+    // attempt upload with one retry on transient errors (network  fetch / 503 / 504)
+    let uploadError = null; let data = null; let attemptCount = 0;
+    while (attemptCount < 2) {
+      attemptCount++;
+      const resp = await supabase.storage.from(bucket).upload(filename, blobInfo.blob, { contentType: mimeType || 'image/jpeg', upsert: false });
+      if (!resp.error) { data = resp.data; uploadError = null; break; }
+      uploadError = resp.error;
+      if (!/timeout|network|503|504|Failed to fetch/i.test(String(uploadError.message||uploadError))) break; // only retry transient
+      await new Promise(r=> setTimeout(r, 400));
+    }
+    if (uploadError) throw uploadError;
     const { data: pub } = supabase.storage.from(bucket).getPublicUrl(data.path);
     return { success: true, url: pub.publicUrl, mode: modeTried[0] };
   } catch (e) {
-    return { success: false, error: e.message, code: e.status || null };
+    // classify common issues for clearer UI messages
+    let code = e.status || null;
+    let msg = e.message || 'upload failed';
+    if (/Fetch failed|Network request failed/i.test(msg)) msg = 'Network error contacting storage (check connection/RLS)';
+    if (/duplicate|already exists/i.test(msg)) msg = 'File already exists (try again)';
+    if (/bucket/i.test(msg) && /not exist|missing/i.test(msg)) msg = 'Bucket missing or misnamed';
+    return { success: false, error: msg, code };
   }
 };
 
