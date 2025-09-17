@@ -390,30 +390,55 @@ export const getMessagesByChat = async ({ chatId, limit = 100 }) => {
 
 // ==================== Storage and Stories ====================
 export const uploadImage = async ({ bucket, fileUri, base64 = null, mimeType = 'image/jpeg', pathPrefix = '' }) => {
-  try {
-    if (!bucket || (!fileUri && !base64)) throw new Error('bucket and file source required');
+  const attempt = async (sourceType) => {
     let blob;
-    let ext = 'jpg';
-    if (base64) {
+    let detectedExt = 'jpg';
+    if (sourceType === 'base64') {
       const dataUrl = `data:${mimeType};base64,${base64}`;
       const res = await fetch(dataUrl);
       blob = await res.blob();
-      ext = (mimeType && mimeType.split('/')[1]) || 'jpg';
+      detectedExt = (mimeType && mimeType.split('/')[1]) || 'jpg';
     } else {
       const res = await fetch(fileUri);
       blob = await res.blob();
-      ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
-      if (!mimeType) mimeType = blob.type || 'image/jpeg';
+      // prefer blob.type to infer extension
+      const t = blob.type || mimeType;
+      if (t && t.includes('/')) detectedExt = t.split('/')[1];
+      if (!mimeType) mimeType = t || 'image/jpeg';
     }
-    const filename = `${pathPrefix}${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const { data, error } = await supabase.storage.from(bucket).upload(filename, blob, { contentType: mimeType || 'image/jpeg', upsert: false });
-    console.log('Supabase uploadImage:', { bucket, filename, mimeType, error, data });
+    return { blob: blob, ext: detectedExt || 'jpg' };
+  };
+  try {
+    if (!bucket || (!fileUri && !base64)) throw new Error('bucket and file source required');
+    // Normalize path prefix
+    let safePrefix = pathPrefix || '';
+    if (safePrefix && !safePrefix.endsWith('/')) safePrefix += '/';
+
+    let blobInfo = null;
+    let modeTried = [];
+    if (fileUri) {
+      try {
+        blobInfo = await attempt('file');
+        modeTried.push('file');
+      } catch (e) {
+        // fallback to base64 if available
+      }
+    }
+    if (!blobInfo && base64) {
+      try {
+        blobInfo = await attempt('base64');
+        modeTried.push('base64');
+      } catch (e) {}
+    }
+    if (!blobInfo) throw new Error('Unable to prepare image data');
+
+    const filename = `${safePrefix}${Date.now()}-${Math.random().toString(36).slice(2)}.${blobInfo.ext}`;
+    const { data, error } = await supabase.storage.from(bucket).upload(filename, blobInfo.blob, { contentType: mimeType || 'image/jpeg', upsert: false });
     if (error) throw error;
     const { data: pub } = supabase.storage.from(bucket).getPublicUrl(data.path);
-    return { success: true, url: pub.publicUrl };
+    return { success: true, url: pub.publicUrl, mode: modeTried[0] };
   } catch (e) {
-    console.log('Supabase uploadImage error:', e, JSON.stringify(e));
-    return { success: false, error: e.message, details: e };
+    return { success: false, error: e.message, code: e.status || null };
   }
 };
 

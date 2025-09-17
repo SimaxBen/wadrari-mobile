@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, StatusBar, Alert, ScrollView, Image, Modal } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, StatusBar, Alert, ScrollView, Image, Modal, FlatList } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
 import { configureNotifications, notifyNewMessage, notifyStoryPosted } from './src/services/notifications';
@@ -551,16 +551,14 @@ const MainScreen = ({ userData, onLogout }) => {
                   </TouchableOpacity>
                 </View>
                 
-                {/* Scrollable message area */}
-                <ScrollView 
+                <FlatList
+                  data={messages.filter(m => m.chat_id === activeChat.id)}
+                  keyExtractor={(item) => item.id.toString()}
                   style={styles.whatsappMessageArea}
                   ref={messageScrollRef}
-                  onContentSizeChange={() => {
-                    if (messageScrollRef.current) messageScrollRef.current.scrollToEnd({ animated: true });
-                  }}
-                >
-                  {messages.filter(m => m.chat_id === activeChat.id).map((m) => (
-                    <View key={m.id} style={[styles.whatsappMessage, m.sender_id === userData?.id ? styles.whatsappMessageSent : styles.whatsappMessageReceived]}>
+                  onContentSizeChange={() => { if (messageScrollRef.current) messageScrollRef.current.scrollToEnd({ animated: true }); }}
+                  renderItem={({ item: m }) => (
+                    <View style={[styles.whatsappMessage, m.sender_id === userData?.id ? styles.whatsappMessageSent : styles.whatsappMessageReceived]}>
                       {m.sender_id !== userData?.id && (
                         <Text style={styles.whatsappMessageSender}>{m.username || 'User'}</Text>
                       )}
@@ -569,8 +567,8 @@ const MainScreen = ({ userData, onLogout }) => {
                         {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </Text>
                     </View>
-                  ))}
-                </ScrollView>
+                  )}
+                />
               </View>
             )}
           </View>
