@@ -333,7 +333,7 @@ const MainScreen = ({ userData, onLogout }) => {
       let mediaUrl = null;
       if (storyImageUri) {
         mediaUrl = await handleImageUpload({
-          bucket: 'story-images',
+          bucket: 'story-image',
           fileUri: storyImageUri,
           base64: storyImageBase64,
           pathPrefix: `${userData?.id}/`
@@ -693,15 +693,13 @@ const MainScreen = ({ userData, onLogout }) => {
           <View style={styles.section}>
             {/* Profile Header */}
             <View style={styles.profileHeader}>
-              <View style={styles.profileAvatarSection}>
-                <View style={styles.userAvatarLarge}>
-                  {(profileAvatarUrl || profile?.avatar_url || userData?.avatar_url) ? (
-                    <Image 
-                      source={{ uri: profileAvatarUrl || profile?.avatar_url || userData?.avatar_url }} 
+              <View style={[styles.profileAvatarSection, { marginBottom: 8 }] }>
+                <View style={[styles.userAvatarLarge, { borderWidth:3, borderColor:'#4a90e2', shadowColor:'#4a90e2', shadowOpacity:0.4, shadowRadius:8 }] }>
+                  {(profile?.avatar_url || userData?.avatar_url) ? (
+                    <Image
+                      source={{ uri: profile?.avatar_url || userData?.avatar_url }}
                       style={styles.userAvatarImgLarge}
-                      onError={(e) => {
-                        console.log('Profile avatar load error:', e.nativeEvent.error);
-                      }}
+                      onError={(e) => console.log('Profile avatar load error:', e.nativeEvent.error)}
                     />
                   ) : (
                     <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0].toUpperCase()}</Text>
@@ -709,43 +707,27 @@ const MainScreen = ({ userData, onLogout }) => {
                 </View>
                 <TouchableOpacity style={styles.changeAvatarButton} onPress={async () => {
                   try {
-                    const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                    if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
-                    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-                    const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
-                    if (!asset) return;
                     setUpdatingAvatar(true);
-                    
-                    const avatarUrl = await handleImageUpload({
-                      bucket: 'profile-avatars',
-                      fileUri: asset.uri,
-                      base64: asset.base64,
-                      pathPrefix: `${userData?.id}/`
-                    });
-                    
+                    const seed = `${userData?.username || 'user'}-${Date.now()}`;
+                    // Dicebear generated PNG avatar URL (no upload needed)
+                    const avatarUrl = `https://api.dicebear.com/7.x/identicon/png?seed=${encodeURIComponent(seed)}&backgroundColor=1a1a2e,4a90e2&radius=50`;
                     const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl });
-                    console.log('UpdateUserAvatar response:', resp);
                     if (resp?.success) {
-                      setProfileAvatarUrl(avatarUrl);
-                      setProfile((p) => p ? { ...p, avatar_url: avatarUrl } : p);
-                      Alert.alert('Profile', 'Avatar updated.');
+                      setProfile((p) => p ? { ...p, avatar_url: avatarUrl } : { avatar_url: avatarUrl });
+                      userData.avatar_url = avatarUrl; // optimistic local update
+                      Alert.alert('Profile', 'New avatar generated.');
                     } else {
-                      console.error('Update avatar error:', resp?.error);
-                      Alert.alert('Profile', resp?.error ? `Error: ${resp.error}` : 'Update failed.');
+                      Alert.alert('Profile', resp?.error || 'Update failed');
                     }
-                  } catch (e) {
-                    console.error('Profile image upload exception:', e);
-                    Alert.alert('Upload failed', e.message);
+                  } catch(e){
+                    Alert.alert('Avatar', e.message);
                   } finally { setUpdatingAvatar(false); }
                 }}>
-                  <Text style={styles.changeAvatarText}>📷 Change Photo</Text>
+                  <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Generating...' : '🎲 Generate Avatar'}</Text>
                 </TouchableOpacity>
               </View>
-              
-              <View style={styles.profileInfo}>
-                <Text style={styles.profileUsername}>{profile?.username || userData?.username}</Text>
-                <Text style={styles.profileJoinDate}>Joined {new Date(userData?.created_at || Date.now()).toLocaleDateString()}</Text>
-              </View>
+              <Text style={[styles.profileUsername, { textAlign:'center', marginTop:4 }]}>{profile?.username || userData?.username}</Text>
+              <Text style={[styles.profileJoinDate, { textAlign:'center' }]}>Joined {new Date(userData?.created_at || Date.now()).toLocaleDateString()}</Text>
             </View>
 
             {/* Stats Cards */}
@@ -755,10 +737,6 @@ const MainScreen = ({ userData, onLogout }) => {
                 <Text style={styles.statLabel}>🏆 Trophies</Text>
               </View>
               <View style={styles.statCard}>
-                <Text style={styles.statNumber}>{profile?.seasonal_trophies ?? userData?.seasonal_trophies ?? 0}</Text>
-                <Text style={styles.statLabel}>🌟 Season</Text>
-              </View>
-              <View style={styles.statCard}>
                 <Text style={styles.statNumber}>{profile?.current_streak ?? userData?.current_streak ?? 0}</Text>
                 <Text style={styles.statLabel}>🔥 Streak</Text>
               </View>
@@ -766,9 +744,9 @@ const MainScreen = ({ userData, onLogout }) => {
 
             {/* Daily Quests Section */}
             <View style={styles.profileSection}>
-              <Text style={styles.profileSectionTitle}>🎯 Daily Quests</Text>
+              <Text style={styles.profileSectionTitle}>🎯 Active Quests</Text>
               <View style={styles.questsContainer}>
-                {quests.map((q) => (
+                {quests.filter(q => q.progress < q.target).map((q) => (
                   <View key={q.id} style={styles.dailyQuestCard}>
                     <View style={styles.questProgress}>
                       <View style={styles.questProgressBar}>
@@ -777,19 +755,15 @@ const MainScreen = ({ userData, onLogout }) => {
                       <Text style={styles.questProgressText}>{q.progress}/{q.target}</Text>
                     </View>
                     <View style={styles.questInfo}>
-                      <Text style={styles.questTitle}>{q.title}</Text>
+                      <Text style={styles.questTitle}>{q.title || q.name}</Text>
                       <Text style={styles.questDescription}>{q.description}</Text>
-                      <Text style={styles.questReward}>Reward: {q.reward} 🏆</Text>
-                    </View>
-                    <View style={styles.questAction}>
-                      {q.progress >= q.target ? (
-                        <View style={styles.completedBadge}>
-                          <Text style={styles.completedText}>✅ Done</Text>
-                        </View>
-                      ) : null}
+                      <Text style={styles.questReward}>Reward: {(q.reward || q.trophy_reward || 0)} 🏆</Text>
                     </View>
                   </View>
                 ))}
+                {quests.filter(q => q.progress < q.target).length === 0 && (
+                  <Text style={{ color:'#888', fontSize:12 }}>All quests completed 🎉</Text>
+                )}
               </View>
             </View>
 
