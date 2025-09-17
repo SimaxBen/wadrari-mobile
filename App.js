@@ -37,10 +37,44 @@ import {
 class ErrorBoundary extends React.Component {
   constructor(props){
     super(props);
-    this.state = { hasError:false };
+    this.state = { hasError:false, error:null, info:null };
+    this._onGlobalError = this._onGlobalError.bind(this);
   }
-  static getDerivedStateFromError(){ return { hasError:true }; }
-  componentDidCatch(error, info){ console.log('ErrorBoundary caught', error, info); }
+  static getDerivedStateFromError(error){ return { hasError:true, error }; }
+  componentDidCatch(error, info){
+    console.log('ErrorBoundary caught', error, info);
+    this.setState({ info });
+  }
+  componentDidMount(){
+    // Capture global errors (RN globalErrorHandler or window)
+    const handler = (e, isFatal) => {
+      try { console.log('GlobalError', e, isFatal); } catch {}
+      this.setState({ hasError:true, error: e, info:{ componentStack: (e && e.stack) ? e.stack : 'no-stack' } });
+      return false; // let default continue
+    };
+    if (global && typeof global.ErrorUtils !== 'undefined' && typeof global.ErrorUtils.setGlobalHandler === 'function') {
+      try { this._prevHandler = global.ErrorUtils.getGlobalHandler?.(); } catch {}
+      try { global.ErrorUtils.setGlobalHandler(handler); } catch {}
+    } else if (typeof window !== 'undefined') {
+      window.addEventListener('error', this._onGlobalError);
+      window.addEventListener('unhandledrejection', this._onGlobalError);
+    }
+  }
+  componentWillUnmount(){
+    try {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('error', this._onGlobalError);
+        window.removeEventListener('unhandledrejection', this._onGlobalError);
+      }
+      if (this._prevHandler && global?.ErrorUtils?.setGlobalHandler) {
+        global.ErrorUtils.setGlobalHandler(this._prevHandler);
+      }
+    } catch {}
+  }
+  _onGlobalError(event){
+    const err = event?.reason || event?.error || event;
+    this.setState({ hasError:true, error: err, info:{ componentStack: (err && err.stack) ? err.stack : 'no-stack' } });
+  }
   render(){
     if (this.state.hasError) {
       return (
@@ -48,6 +82,14 @@ class ErrorBoundary extends React.Component {
           <View style={styles.loginContainer}>
             <Text style={styles.title}>⚔️ WADRARI</Text>
             <Text style={styles.subtitle}>Something went wrong.</Text>
+            <View style={{ marginTop:12, maxWidth:320 }}>
+              <Text style={{ color:'#ff6666', fontSize:12, textAlign:'center' }} numberOfLines={6}>
+                {this.state.error ? String(this.state.error.message || this.state.error) : 'No error object captured.'}
+              </Text>
+              <Text style={{ color:'#888', marginTop:8, fontSize:10 }} numberOfLines={5}>
+                {(this.state.info && this.state.info.componentStack) ? this.state.info.componentStack : (this.state.error?.stack || 'No stack trace available')}
+              </Text>
+            </View>
           </View>
         </SafeAreaView>
       );
@@ -196,12 +238,12 @@ const MainScreen = ({ userData, onLogout }) => {
     let unsubscribe = null;
     const load = async () => {
       try {
-  const [ch, msgs, sts, lb, qs] = await Promise.all([
-          getChats({ includePublic: true }),
-          getMessages({ limit: 50 }),
-          getStories({ limit: 20 }),
-          getLeaderboard({ limit: 20 }),
-          getQuestsForUser(userData?.id)
+        const [ch, msgs, sts, lb, qs] = await Promise.all([
+          typeof getChats === 'function' ? getChats({ includePublic: true }) : Promise.resolve([]),
+          typeof getMessages === 'function' ? getMessages({ limit: 50 }) : Promise.resolve([]),
+          typeof getStories === 'function' ? getStories({ limit: 20 }) : Promise.resolve([]),
+          typeof getLeaderboard === 'function' ? getLeaderboard({ limit: 20 }) : Promise.resolve([]),
+          typeof getQuestsForUser === 'function' ? getQuestsForUser(userData?.id) : Promise.resolve([])
         ]);
         setChats(Array.isArray(ch) ? ch : []);
         setMessages(Array.isArray(msgs) ? msgs : []);
@@ -213,25 +255,25 @@ const MainScreen = ({ userData, onLogout }) => {
   // Removed auto-opening first chat: user sees list first
       } catch (_) {}
       try {
-        unsubscribe = subscribeToMessages((msg) => {
+        unsubscribe = typeof subscribeToMessages === 'function' ? subscribeToMessages((msg) => {
           if (!msg) return;
           // Only append messages for the active chat (or global if no activeChat)
           if (!activeChat || msg.chat_id === activeChat?.id || (!msg.chat_id && !activeChat)) {
             setMessages((prev) => [...prev, msg]);
           }
-        });
+        }) : null;
       } catch (_) {}
       // Prefetch likes for visible stories
       try {
         const ids = (Array.isArray(stories) ? stories : storyList).map(s => s.id).filter(Boolean);
         if (ids.length && userData?.id) {
-          const liked = await getUserLikesForStories({ userId: userData.id, storyIds: ids });
+          const liked = typeof getUserLikesForStories === 'function' ? await getUserLikesForStories({ userId: userData.id, storyIds: ids }) : [];
           setMyLikedStories(Array.isArray(liked) ? liked : []);
         }
         // Like counts per story
         for (const id of ids) {
           try {
-            const reactions = await getStoryReactions({ storyId: id });
+            const reactions = typeof getStoryReactions === 'function' ? await getStoryReactions({ storyId: id }) : [];
             const count = (reactions || []).filter(r => r.reaction_type === 'like').length;
             setStoryLikes((prev) => ({ ...prev, [id]: count }));
           } catch {}
@@ -983,7 +1025,7 @@ const MainScreen = ({ userData, onLogout }) => {
       </Modal>
 
       {/* Story Viewer Modal with likes & comments */}
-      <Modal
+  <Modal
         visible={!!storyViewer}
         transparent
         animationType="fade"
@@ -992,11 +1034,11 @@ const MainScreen = ({ userData, onLogout }) => {
           try {
             if (!storyViewer?.id) return;
             // fetch reactions (likers)
-            const reactions = await getStoryReactions({ storyId: storyViewer.id });
+    const reactions = typeof getStoryReactions === 'function' ? await getStoryReactions({ storyId: storyViewer.id }) : [];
             const likeUsers = (reactions || []).filter(r => r.reaction_type === 'like').map(r => r.user_id);
             // fetch usernames for likers
             // reuse existing storyComments structure for display; load comments
-            await loadComments(storyViewer.id);
+    if (typeof loadComments === 'function') await loadComments(storyViewer.id);
             // map user ids -> usernames from existing stories list if available
             // We'll store usernames separately inside local state-like derived arrays (no extra state variable to keep patch small)
             setStoryLikes(prev => ({ ...prev, [storyViewer.id]: likeUsers.length }));
