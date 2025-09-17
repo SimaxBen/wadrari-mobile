@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, StatusBar, Alert, ScrollView, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, StatusBar, Alert, ScrollView, Image, Modal } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
 import { configureNotifications, notifyNewMessage, notifyStoryPosted } from './src/services/notifications';
@@ -212,6 +212,8 @@ const MainScreen = ({ userData, onLogout }) => {
   const [questImageBase64, setQuestImageBase64] = useState(null);
   const [groupImageUri, setGroupImageUri] = useState('');
   const [groupImageBase64, setGroupImageBase64] = useState(null);
+  const messageScrollRef = useRef(null);
+  const [storyViewer, setStoryViewer] = useState(null);
 
   // Standardized image upload function using group image logic
   const handleImageUpload = async ({ bucket, fileUri, base64, pathPrefix, mimeType = 'image/jpeg' }) => {
@@ -549,8 +551,14 @@ const MainScreen = ({ userData, onLogout }) => {
                   </TouchableOpacity>
                 </View>
                 
-                {/* WhatsApp-style message area */}
-                <View style={styles.whatsappMessageArea}>
+                {/* Scrollable message area */}
+                <ScrollView 
+                  style={styles.whatsappMessageArea}
+                  ref={messageScrollRef}
+                  onContentSizeChange={() => {
+                    if (messageScrollRef.current) messageScrollRef.current.scrollToEnd({ animated: true });
+                  }}
+                >
                   {messages.filter(m => m.chat_id === activeChat.id).map((m) => (
                     <View key={m.id} style={[styles.whatsappMessage, m.sender_id === userData?.id ? styles.whatsappMessageSent : styles.whatsappMessageReceived]}>
                       {m.sender_id !== userData?.id && (
@@ -562,7 +570,7 @@ const MainScreen = ({ userData, onLogout }) => {
                       </Text>
                     </View>
                   ))}
-                </View>
+                </ScrollView>
               </View>
             )}
           </View>
@@ -586,7 +594,7 @@ const MainScreen = ({ userData, onLogout }) => {
                 </View>
               ) : (
                 stories.filter((s) => !s.expires_at || new Date(s.expires_at) > new Date()).map((s) => (
-                  <TouchableOpacity key={s.id} style={styles.storyCard} onPress={() => setSelectedStory(s)}>
+                  <TouchableOpacity key={s.id} style={styles.storyCard} onPress={() => setStoryViewer(s)}>
                     {s.media_url ? (
                     <Image 
                       source={{ uri: s.media_url }} 
@@ -676,10 +684,14 @@ const MainScreen = ({ userData, onLogout }) => {
               </View>
               
               <View style={styles.questsList}>
-                {allQuests.map((q) => (
-                  <TouchableOpacity key={q.id} style={styles.questCard} onPress={() => {
-                    // TODO: Open quest detail modal
-                  }}>
+                {allQuests.map((q) => {
+                  // Determine completion state based on quest_type
+                  const userQuest = quests.find(qq => qq.id === q.id);
+                  const alreadyCompleted = userQuest ? (userQuest.progress >= userQuest.target) : false;
+                  const isRepeatable = q.quest_type === 'repeatable';
+                  const canComplete = !alreadyCompleted || isRepeatable;
+                  return (
+                  <TouchableOpacity key={q.id} style={styles.questCard} onPress={() => { /* future detail modal */ }}>
                     {q.image_url ? (
                       <Image 
                         source={{ uri: q.image_url }} 
@@ -696,15 +708,42 @@ const MainScreen = ({ userData, onLogout }) => {
                     <View style={styles.questCardContent}>
                       <Text style={styles.questCardTitle}>{q.name}</Text>
                       <Text style={styles.questCardDescription} numberOfLines={2}>{q.description || ''}</Text>
+                      <Text style={styles.questTypeTag}>Type: {q.quest_type || 'unknown'}</Text>
                       <View style={styles.questCardFooter}>
-                        <Text style={styles.questCardReward}>🏆 {q.trophy_reward || 0}</Text>
-                        <TouchableOpacity style={styles.questCardButton} onPress={() => handleCompleteQuest(q)}>
-                          <Text style={styles.questCardButtonText}>Complete Quest</Text>
+                        <Text style={styles.questCardReward}>🏆 {q.trophy_reward || q.reward || 0}</Text>
+                        <TouchableOpacity disabled={!canComplete} style={[styles.questCardButton, !canComplete && { opacity:0.4 }]} onPress={async () => {
+                          if (!canComplete) return;
+                          try {
+                            const reward = q.trophy_reward || q.reward || 0;
+                            const res = await completeQuest({ userId: userData?.id, questId: q.id, reward });
+                            if (res?.success) {
+                              // Update quests local state
+                              setQuests(prev => {
+                                const exists = prev.find(p => p.id === q.id);
+                                if (exists) {
+                                  return prev.map(p => p.id === q.id ? { ...p, progress: p.target || exists.target, reward: reward } : p);
+                                }
+                                return [...prev, { id: q.id, progress: (q.target || 1), target: (q.target || 1), reward }];
+                              });
+                              // Instant trophy update
+                              if (reward) {
+                                userData.trophies = (userData.trophies || 0) + reward;
+                                setLeaderboard(prev => prev.map(l => l.id === userData.id ? { ...l, trophies: (l.trophies||0)+reward } : l));
+                              }
+                              Alert.alert('Quest', `Completed! +${reward} 🏆`);
+                            } else if (res?.error) {
+                              Alert.alert('Quest', res.error);
+                            }
+                          } catch(e){
+                            Alert.alert('Quest', e.message);
+                          }
+                        }}>
+                          <Text style={styles.questCardButtonText}>{alreadyCompleted && !isRepeatable ? 'Done' : 'Complete'}</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
                   </TouchableOpacity>
-                ))}
+                )})}
               </View>
             </View>
           </View>
@@ -746,7 +785,7 @@ const MainScreen = ({ userData, onLogout }) => {
               </TouchableOpacity>
               {!!questImageUri && <Image source={{ uri: questImageUri }} style={[styles.fullPagePreviewImage, { marginBottom: 16 }]} />}
               <View style={[styles.row, { marginBottom: 16, justifyContent: 'space-around' }]}> 
-                {['daily','weekly','one_time'].map((t) => (
+                {['daily','repeatable','one_time'].map((t) => (
                   <TouchableOpacity key={t} style={[styles.typeButton, (questForm.type===t) && styles.typeButtonActive]} onPress={() => setQuestForm({ ...questForm, type: t })}>
                     <Text style={[styles.typeButtonText, (questForm.type===t) && styles.typeButtonTextActive]}>{t}</Text>
                   </TouchableOpacity>
@@ -1115,6 +1154,21 @@ const MainScreen = ({ userData, onLogout }) => {
           ))}
         </View>
       )}
+      {/* Story Viewer Modal */}
+      <Modal visible={!!storyViewer} transparent animationType="fade" onRequestClose={() => setStoryViewer(null)}>
+        <View style={styles.storyViewerContainer}>
+          <View style={styles.storyViewerBox}>
+            {storyViewer?.media_url ? (
+              <Image source={{ uri: storyViewer.media_url }} style={styles.storyViewerImage} />
+            ) : null}
+            <Text style={styles.storyViewerAuthor}>{storyViewer?.author}</Text>
+            <Text style={styles.storyViewerText}>{storyViewer?.content}</Text>
+            <TouchableOpacity style={styles.closeStoryButton} onPress={() => setStoryViewer(null)}>
+              <Text style={styles.closeStoryButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -2077,10 +2131,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   whatsappMessageArea: {
-    flex: 1,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-    maxHeight: 400,
+    flexGrow: 1,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    maxHeight: 500,
   },
   whatsappMessage: {
     maxWidth: '80%',
@@ -2126,7 +2180,7 @@ const styles = StyleSheet.create({
   },
   fixedChatInputContainer: {
     position: 'absolute',
-    bottom: 70,
+    bottom: 85,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -2273,11 +2327,8 @@ const styles = StyleSheet.create({
   tabText: { color: '#cccccc' },
   tabTextActive: { color: '#ffffff', fontWeight: 'bold' },
   section: {
-    marginTop: 20,
-    padding: 20,
-    backgroundColor: '#2a2a4e',
-    borderRadius: 10,
-    width: '100%',
+  // Simplified per user request: no padding, margin, or background design
+  width: '100%',
   },
   pill: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#2a2a4e', marginRight: 8 },
   pillActive: { backgroundColor: '#4a90e2' },
