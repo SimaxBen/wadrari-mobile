@@ -235,6 +235,7 @@ const MainScreen = ({ userData, onLogout }) => {
   };
 
   useEffect(() => {
+    if (!userData || !userData.id) return; // prevent running before login sets userData
     let unsubscribe = null;
     const load = async () => {
       try {
@@ -317,7 +318,7 @@ const MainScreen = ({ userData, onLogout }) => {
         setLeaderboard(Array.isArray(leaderboardData) ? leaderboardData : []);
       }
       
-      if (page === 'Profile' && userData?.id && typeof getUserBadges === 'function') {
+  if (page === 'Profile' && userData?.id && typeof getUserBadges === 'function') {
         try {
           const b = await getUserBadges({ userId: userData.id });
           setBadges(Array.isArray(b) ? b : []);
@@ -326,7 +327,7 @@ const MainScreen = ({ userData, onLogout }) => {
       if (page === 'Chat') {
         setActiveChat(null);
       }
-      if (page === 'Profile' && userData?.id && typeof getUserProfile === 'function') {
+  if (page === 'Profile' && userData?.id && typeof getUserProfile === 'function') {
         try {
           const res = await getUserProfile({ userId: userData.id });
           if (res?.success) setProfile(res.data);
@@ -912,14 +913,16 @@ const MainScreen = ({ userData, onLogout }) => {
                 <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={async () => {
                   try {
                     const reward = questDetail.trophy_reward || questDetail.reward || 0;
+                    if (!questDetail?.id) return;
                     const res = await completeQuest({ userId: userData?.id, questId: questDetail.id, reward });
                     if (res?.success) {
                       setQuests(prev => {
-                        const exists = prev.find(p => p.id === questDetail.id);
+                        const exists = questDetail?.id ? prev.find(p => p.id === questDetail.id) : null;
                         if (exists) {
-                          return prev.map(p => p.id === questDetail.id ? { ...p, progress: p.target || exists.target } : p);
+                          if (!questDetail?.id) return prev;
+                          return prev.map(p => (p.id === questDetail.id ? { ...p, progress: p.target || exists.target } : p));
                         }
-                        return [...prev, { id: questDetail.id, progress: (questDetail.target || 1), target: (questDetail.target || 1), reward }];
+                        return questDetail?.id ? [...prev, { id: questDetail.id, progress: (questDetail.target || 1), target: (questDetail.target || 1), reward }] : prev;
                       });
                       if (reward) {
                         userData.trophies = (userData.trophies || 0) + reward;
@@ -941,9 +944,10 @@ const MainScreen = ({ userData, onLogout }) => {
                 <TouchableOpacity style={[styles.modalButton, { backgroundColor:'#b33939' }]} onPress={async () => {
                   if (!deleteQuest) { Alert.alert('Admin','Delete not implemented'); return; }
                   try {
+                    if (!questDetail?.id) return;
                     const res = await deleteQuest({ questId: questDetail.id });
                     if (res?.success) {
-                      setAllQuests(prev => prev.filter(q => q.id !== questDetail.id));
+                      setAllQuests(prev => questDetail?.id ? prev.filter(q => q.id !== questDetail.id) : prev);
                       setQuestDetail(null);
                     } else {
                       Alert.alert('Delete', res?.error || 'Failed');
@@ -1034,14 +1038,14 @@ const MainScreen = ({ userData, onLogout }) => {
           try {
             if (!storyViewer?.id) return;
             // fetch reactions (likers)
-    const reactions = typeof getStoryReactions === 'function' ? await getStoryReactions({ storyId: storyViewer.id }) : [];
+            const reactions = (storyViewer?.id && typeof getStoryReactions === 'function') ? await getStoryReactions({ storyId: storyViewer.id }) : [];
             const likeUsers = (reactions || []).filter(r => r.reaction_type === 'like').map(r => r.user_id);
             // fetch usernames for likers
             // reuse existing storyComments structure for display; load comments
-    if (typeof loadComments === 'function') await loadComments(storyViewer.id);
+            if (storyViewer?.id && typeof loadComments === 'function') await loadComments(storyViewer.id);
             // map user ids -> usernames from existing stories list if available
             // We'll store usernames separately inside local state-like derived arrays (no extra state variable to keep patch small)
-            setStoryLikes(prev => ({ ...prev, [storyViewer.id]: likeUsers.length }));
+            if (storyViewer?.id) setStoryLikes(prev => ({ ...prev, [storyViewer.id]: likeUsers.length }));
           } catch (e) { console.log('Story modal load error', e); }
         }}
       >
@@ -1063,11 +1067,11 @@ const MainScreen = ({ userData, onLogout }) => {
                 <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between' }}>
                   <Text style={{ color:'#4a90e2', fontWeight:'bold' }}>❤️ Likes ({storyLikes[storyViewer?.id] || 0})</Text>
                   <TouchableOpacity
-                    onPress={() => toggleLike(storyViewer.id)}
+                    onPress={() => storyViewer?.id && toggleLike(storyViewer.id)}
                     style={{ backgroundColor:'#2a3245', paddingVertical:6, paddingHorizontal:14, borderRadius:20 }}
                   >
                     <Text style={{ color:'#fff', fontSize:12 }}>
-                      {myLikedStories.includes(storyViewer.id) ? 'Unlike' : 'Like'}
+                      {storyViewer?.id && myLikedStories.includes(storyViewer.id) ? 'Unlike' : 'Like'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -1075,10 +1079,10 @@ const MainScreen = ({ userData, onLogout }) => {
               {/* Comments Section */}
               <View style={{ marginTop:4 }}>
                 <Text style={{ color:'#4a90e2', fontWeight:'bold', marginBottom:8 }}>💬 Comments</Text>
-                {(storyComments[storyViewer.id] || []).length === 0 && (
+                {storyViewer?.id && (storyComments[storyViewer.id] || []).length === 0 && (
                   <Text style={{ color:'#777', fontSize:12 }}>No comments yet</Text>
                 )}
-                {(storyComments[storyViewer.id] || []).map(c => (
+                {storyViewer?.id && (storyComments[storyViewer.id] || []).map(c => (
                   <View key={c.id} style={{ marginBottom:10, backgroundColor:'#1f2535', padding:10, borderRadius:12, borderWidth:1, borderColor:'#2a3245' }}>
                     <Text style={{ color:'#4a90e2', fontSize:12, fontWeight:'bold', marginBottom:4 }}>{c.username || 'User'}</Text>
                     <Text style={{ color:'#e0e6f2', fontSize:13 }}>{c.content}</Text>
@@ -1095,7 +1099,7 @@ const MainScreen = ({ userData, onLogout }) => {
                     style={{ flex:1, backgroundColor:'#2a3245', color:'#fff', paddingHorizontal:12, paddingVertical:10, borderRadius:20, fontSize:13 }}
                   />
                   <TouchableOpacity
-                    onPress={() => sendComment(storyViewer.id)}
+                    onPress={() => storyViewer?.id && sendComment(storyViewer.id)}
                     style={{ backgroundColor:'#4a90e2', paddingHorizontal:16, paddingVertical:10, borderRadius:20 }}
                   >
                     <Text style={{ color:'#fff', fontWeight:'bold', fontSize:12 }}>Send</Text>

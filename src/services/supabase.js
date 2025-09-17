@@ -60,29 +60,22 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// Plain text password (no hashing) per request
+// Plain text passthrough (server already stores plain or pre-hashed). Adjust to compare with password_hash column.
 const hashPassword = (password) => password;
 
 // Login with username and password
 export const loginWithUsername = async (username, password) => {
-  try {    
-    if (!username || !password) {
-      throw new Error('Username and password are required');
-    }
-
-  const hashedPassword = hashPassword(password);
-    
-    // Query users table directly
+  try {
+    if (!username || !password) throw new Error('Username and password are required');
+    const hashedPassword = hashPassword(password);
+    // Adjusted to match actual schema: column is password_hash (see tables metadata)
     const { data: user, error } = await supabase
       .from('users')
-      .select('*')
+      .select('id, username, display_name, avatar_url, trophies, seasonal_trophies, total_messages, total_stories, current_streak, badges, created_at, last_activity, password_hash')
       .eq('username', username.trim())
-  .eq('password', hashedPassword)
+      .eq('password_hash', hashedPassword)
       .single();
-
-    if (error || !user) {
-      throw new Error('Invalid username or password');
-    }
+    if (error || !user) throw new Error('Invalid username or password');
 
     // Silently update last activity - don't fail if this fails
     try {
