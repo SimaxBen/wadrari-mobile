@@ -3,100 +3,53 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, Stat
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
 import { configureNotifications, notifyNewMessage, notifyStoryPosted } from './src/services/notifications';
+import { 
+  loginWithUsername,
+  getChats,
+  getMessages,
+  getStories,
+  getLeaderboard,
+  getQuestsForUser,
+  subscribeToMessages,
+  getUserLikesForStories,
+  getStoryReactions,
+  completeQuest,
+  getAllQuests,
+  getUserBadges,
+  getUserProfile,
+  sendMessage,
+  createChat,
+  getMessagesByChat,
+  uploadImage,
+  addStory,
+  unlikeStory,
+  likeStory,
+  getStoryComments,
+  addStoryComment,
+  updateUserAvatar,
+  deleteQuest,
+  createQuest
+} from './src/services/supabase';
 
-// Safe import without any console statements
-let loginWithUsername = async () => { throw new Error('Authentication service unavailable'); };
-let getMessages = async () => [];
-let getMessagesByChat = async () => [];
-let sendMessage = async () => ({ success: false });
-let subscribeToMessages = () => () => {};
-let getStories = async () => [];
-let addStory = async () => ({ success: false });
-let uploadImage = async () => ({ success: false });
-let getStoryComments = async () => [];
-let addStoryComment = async () => ({ success: false });
-let likeStory = async () => ({ success: false });
-let unlikeStory = async () => ({ success: false });
-let getUserLikesForStories = async () => [];
-let getStoryReactions = async () => [];
-let getUserBadges = async () => [];
-let getLeaderboard = async () => [];
-let getQuestsForUser = async () => [];
-let completeQuest = async () => ({ success: false });
-let getChats = async () => [];
-let createChat = async () => ({ success: false });
-let getAllQuests = async () => [];
-let createQuest = async () => ({ success: false });
-let updateUserAvatar = async () => ({ success: false });
-let updateChatImage = async () => ({ success: false });
-let getUserProfile = async () => ({ success: false });
-
-try {
-  const supabaseModule = require('./src/services/supabase');
-  if (supabaseModule) {
-    if (supabaseModule.loginWithUsername) loginWithUsername = supabaseModule.loginWithUsername;
-  if (supabaseModule.getMessages) getMessages = supabaseModule.getMessages;
-  if (supabaseModule.getMessagesByChat) getMessagesByChat = supabaseModule.getMessagesByChat;
-    if (supabaseModule.sendMessage) sendMessage = supabaseModule.sendMessage;
-    if (supabaseModule.subscribeToMessages) subscribeToMessages = supabaseModule.subscribeToMessages;
-    if (supabaseModule.getStories) getStories = supabaseModule.getStories;
-  if (supabaseModule.addStory) addStory = supabaseModule.addStory;
-  if (supabaseModule.uploadImage) uploadImage = supabaseModule.uploadImage;
-    if (supabaseModule.getStoryComments) getStoryComments = supabaseModule.getStoryComments;
-    if (supabaseModule.addStoryComment) addStoryComment = supabaseModule.addStoryComment;
-    if (supabaseModule.likeStory) likeStory = supabaseModule.likeStory;
-    if (supabaseModule.unlikeStory) unlikeStory = supabaseModule.unlikeStory;
-  if (supabaseModule.getUserLikesForStories) getUserLikesForStories = supabaseModule.getUserLikesForStories;
-  if (supabaseModule.getStoryReactions) getStoryReactions = supabaseModule.getStoryReactions;
-    if (supabaseModule.getLeaderboard) getLeaderboard = supabaseModule.getLeaderboard;
-    if (supabaseModule.getQuestsForUser) getQuestsForUser = supabaseModule.getQuestsForUser;
-  if (supabaseModule.getUserBadges) getUserBadges = supabaseModule.getUserBadges;
-  if (supabaseModule.completeQuest) completeQuest = supabaseModule.completeQuest;
-  if (supabaseModule.getChats) getChats = supabaseModule.getChats;
-  if (supabaseModule.createChat) createChat = supabaseModule.createChat;
-  if (supabaseModule.getAllQuests) getAllQuests = supabaseModule.getAllQuests;
-    if (supabaseModule.createQuest) createQuest = supabaseModule.createQuest;
-  if (supabaseModule.updateUserAvatar) updateUserAvatar = supabaseModule.updateUserAvatar;
-  if (supabaseModule.updateChatImage) updateChatImage = supabaseModule.updateChatImage;
-  if (supabaseModule.getUserProfile) getUserProfile = supabaseModule.getUserProfile;
-  }
-} catch (error) {
-  // Silent failure
-}
-
-// Error Boundary Component
+// Simple Error Boundary (prevent full crash)
 class ErrorBoundary extends React.Component {
-  constructor(props) {
+  constructor(props){
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError:false };
   }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    // Silent error handling
-  }
-
-  render() {
+  static getDerivedStateFromError(){ return { hasError:true }; }
+  componentDidCatch(error, info){ console.log('ErrorBoundary caught', error, info); }
+  render(){
     if (this.state.hasError) {
       return (
         <SafeAreaView style={styles.container}>
           <View style={styles.loginContainer}>
             <Text style={styles.title}>⚔️ WADRARI</Text>
-            <Text style={styles.subtitle}>Something went wrong</Text>
-            <TouchableOpacity 
-              style={styles.loginButton} 
-              onPress={() => this.setState({ hasError: false })}
-            >
-              <Text style={styles.loginButtonText}>Retry</Text>
-            </TouchableOpacity>
+            <Text style={styles.subtitle}>Something went wrong.</Text>
           </View>
         </SafeAreaView>
       );
     }
-
     return this.props.children;
   }
 }
@@ -112,9 +65,7 @@ const LoginScreen = ({ onLogin }) => {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-    
     setLoading(true);
-    
     try {
       const result = await loginWithUsername(username.trim(), password);
       if (result && result.username) {
@@ -135,7 +86,6 @@ const LoginScreen = ({ onLogin }) => {
       <View style={styles.loginContainer}>
         <Text style={styles.title}>⚔️ WADRARI</Text>
         <Text style={styles.subtitle}>Gaming, Chat & Adventures</Text>
-        
         <TextInput
           style={styles.input}
           placeholder="Username"
@@ -145,7 +95,6 @@ const LoginScreen = ({ onLogin }) => {
           autoCapitalize="none"
           autoCorrect={false}
         />
-        
         <TextInput
           style={styles.input}
           placeholder="Password"
@@ -156,20 +105,14 @@ const LoginScreen = ({ onLogin }) => {
           autoCapitalize="none"
           autoCorrect={false}
         />
-        
-        <TouchableOpacity 
-          style={[styles.loginButton, loading && styles.disabledButton]} 
+        <TouchableOpacity
+          style={[styles.loginButton, loading && styles.disabledButton]}
           onPress={handleLogin}
           disabled={loading}
         >
-          <Text style={styles.loginButtonText}>
-            {loading ? 'Logging in...' : 'Login'}
-          </Text>
+          <Text style={styles.loginButtonText}>{loading ? 'Logging in...' : 'Login'}</Text>
         </TouchableOpacity>
-        
-        <Text style={styles.demoNote}>
-          Use: SIMAX, YassinOss, or OZA
-        </Text>
+        <Text style={styles.demoNote}>Use: SIMAX, YassinOss, or OZA</Text>
       </View>
     </SafeAreaView>
   );
@@ -214,6 +157,10 @@ const MainScreen = ({ userData, onLogout }) => {
   const [groupImageBase64, setGroupImageBase64] = useState(null);
   const messageScrollRef = useRef(null);
   const [storyViewer, setStoryViewer] = useState(null);
+  const [publishingStory, setPublishingStory] = useState(false);
+  const [showStoryCreateModal, setShowStoryCreateModal] = useState(false);
+  const [showCreateQuestModal, setShowCreateQuestModal] = useState(false);
+  const [questDetail, setQuestDetail] = useState(null); // selected quest for detail modal
 
   // Standardized image upload function using group image logic
   const handleImageUpload = async ({ bucket, fileUri, base64, pathPrefix, mimeType = 'image/jpeg' }) => {
@@ -260,7 +207,7 @@ const MainScreen = ({ userData, onLogout }) => {
         setLeaderboard(Array.isArray(lb) ? lb : []);
         setQuests(Array.isArray(qs) ? qs : []);
         // Default to first chat (e.g., General)
-        if (!activeChat && Array.isArray(ch) && ch.length > 0) setActiveChat(ch[0]);
+  // Removed auto-opening first chat: user sees list first
       } catch (_) {}
       try {
         unsubscribe = subscribeToMessages((msg) => {
@@ -330,6 +277,9 @@ const MainScreen = ({ userData, onLogout }) => {
           const b = await getUserBadges({ userId: userData.id });
           setBadges(Array.isArray(b) ? b : []);
         } catch (_) {}
+      }
+      if (page === 'Chat') {
+        setActiveChat(null);
       }
       if (page === 'Profile' && userData?.id && typeof getUserProfile === 'function') {
         try {
@@ -579,7 +529,7 @@ const MainScreen = ({ userData, onLogout }) => {
             <Text style={styles.sectionTitle}>📚 Stories</Text>
             
             {/* Add Story Button */}
-            <TouchableOpacity style={styles.addButton} onPress={() => setPage('CreateStory')}>
+            <TouchableOpacity style={styles.addButton} onPress={() => setShowStoryCreateModal(true)}>
               <Text style={styles.addButtonText}>➕ Add Story</Text>
             </TouchableOpacity>
 
@@ -623,48 +573,58 @@ const MainScreen = ({ userData, onLogout }) => {
         {page === 'Leaderboard' && (
           <View style={styles.section}>
             <View style={{ alignItems: 'center', marginBottom: 20 }}>
-              <Text style={styles.title}>� {seasonName}</Text>
+              <Text style={styles.title}>🐉 {seasonName}</Text>
               <Text style={{ color: '#ccc' }}>60% carryover enabled</Text>
             </View>
             
             <Text style={styles.sectionTitle}>🏅 Top Players</Text>
             <View style={styles.leaderboardContainer}>
-              {leaderboard.map((u, i) => (
-                <View key={u.id || i} style={styles.leaderboardItem}>
-                  <View style={styles.rankBadge}>
-                    <Text style={styles.rankText}>#{i + 1}</Text>
+              {leaderboard.map((u, i) => {
+                const lastIndex = leaderboard.length - 1;
+                const isFirst = i === 0;
+                const isSecond = i === 1 && leaderboard.length > 2; // only show silver if more than 2 users
+                const isLast = i === lastIndex && leaderboard.length > 1; // poop for last if at least 2 users
+                let endIcon = null;
+                if (isFirst) endIcon = '👑';
+                else if (isSecond) endIcon = '♕';
+                else if (isLast) endIcon = '💩';
+                return (
+                  <View key={u.id || i} style={styles.leaderboardItem}>
+                    <View style={styles.rankBadge}>
+                      <Text style={styles.rankText}>#{i + 1}</Text>
+                    </View>
+                    <View style={styles.userAvatarLeaderboard}>
+                      {u.avatar_url ? (
+                        <Image 
+                          source={{ uri: u.avatar_url }} 
+                          style={styles.userAvatarImgLeaderboard}
+                          onError={(e) => {
+                            console.log('Leaderboard avatar load error:', e.nativeEvent.error);
+                          }}
+                        />
+                      ) : (
+                        <Text style={styles.userAvatarTextLeaderboard}>{(u.username || 'U')[0].toUpperCase()}</Text>
+                      )}
+                    </View>
+                    <View style={styles.leaderboardInfo}>
+                      <Text style={styles.leaderboardName}>{u.username || 'Unknown'}</Text>
+                      <Text style={styles.leaderboardTrophies}>{u.trophies ?? 0} 🏆</Text>
+                    </View>
+                    {endIcon && <Text style={styles.crownEmoji}>{endIcon}</Text>}
                   </View>
-                  <View style={styles.userAvatarLeaderboard}>
-                    {u.avatar_url ? (
-                      <Image 
-                        source={{ uri: u.avatar_url }} 
-                        style={styles.userAvatarImgLeaderboard}
-                        onError={(e) => {
-                          console.log('Leaderboard avatar load error:', e.nativeEvent.error);
-                        }}
-                      />
-                    ) : (
-                      <Text style={styles.userAvatarTextLeaderboard}>{(u.username || 'U')[0].toUpperCase()}</Text>
-                    )}
-                  </View>
-                  <View style={styles.leaderboardInfo}>
-                    <Text style={styles.leaderboardName}>{u.username || 'Unknown'}</Text>
-                    <Text style={styles.leaderboardTrophies}>{u.trophies ?? 0} 🏆</Text>
-                  </View>
-                  {i === 0 && <Text style={styles.crownEmoji}>👑</Text>}
-                </View>
-              ))}
+                );
+              })}
             </View>
           </View>
         )}
 
-        {page === 'Quests' && (
+    {page === 'Quests' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>🎯 Quests & Challenges</Text>
             
             {/* Add Quest Button for Admin */}
             {userData?.username === 'SIMAX' && (
-              <TouchableOpacity style={styles.addButton} onPress={() => setPage('CreateQuest')}>
+      <TouchableOpacity style={styles.addButton} onPress={() => setShowCreateQuestModal(true)}>
                 <Text style={styles.addButtonText}>➕ Add Quest</Text>
               </TouchableOpacity>
             )}
@@ -682,14 +642,22 @@ const MainScreen = ({ userData, onLogout }) => {
               </View>
               
               <View style={styles.questsList}>
-                {allQuests.map((q) => {
+                {allQuests
+                  .slice()
+                  .sort((a,b) => {
+                     const aCompleted = !!quests.find(qq=>qq.id===a.id && qq.progress>=qq.target);
+                     const bCompleted = !!quests.find(qq=>qq.id===b.id && qq.progress>=qq.target);
+                     if (aCompleted === bCompleted) return 0;
+                     return aCompleted ? 1 : -1; // completed go last
+                  })
+                  .map((q) => {
                   // Determine completion state based on quest_type
                   const userQuest = quests.find(qq => qq.id === q.id);
                   const alreadyCompleted = userQuest ? (userQuest.progress >= userQuest.target) : false;
                   const isRepeatable = q.quest_type === 'repeatable';
                   const canComplete = !alreadyCompleted || isRepeatable;
                   return (
-                  <TouchableOpacity key={q.id} style={styles.questCard} onPress={() => { /* future detail modal */ }}>
+                  <TouchableOpacity key={q.id} style={[styles.questCardCompact, alreadyCompleted && !isRepeatable && styles.questCardCompleted]} onPress={() => setQuestDetail({ ...q, alreadyCompleted, isRepeatable, canComplete })}>
                     {q.image_url ? (
                       <Image 
                         source={{ uri: q.image_url }} 
@@ -703,41 +671,15 @@ const MainScreen = ({ userData, onLogout }) => {
                         <Text style={styles.questCardPlaceholderText}>🎯</Text>
                       </View>
                     )}
-                    <View style={styles.questCardContent}>
-                      <Text style={styles.questCardTitle}>{q.name}</Text>
-                      <Text style={styles.questCardDescription} numberOfLines={2}>{q.description || ''}</Text>
-                      <Text style={styles.questTypeTag}>Type: {q.quest_type || 'unknown'}</Text>
-                      <View style={styles.questCardFooter}>
-                        <Text style={styles.questCardReward}>🏆 {q.trophy_reward || q.reward || 0}</Text>
-                        <TouchableOpacity disabled={!canComplete} style={[styles.questCardButton, !canComplete && { opacity:0.4 }]} onPress={async () => {
-                          if (!canComplete) return;
-                          try {
-                            const reward = q.trophy_reward || q.reward || 0;
-                            const res = await completeQuest({ userId: userData?.id, questId: q.id, reward });
-                            if (res?.success) {
-                              // Update quests local state
-                              setQuests(prev => {
-                                const exists = prev.find(p => p.id === q.id);
-                                if (exists) {
-                                  return prev.map(p => p.id === q.id ? { ...p, progress: p.target || exists.target, reward: reward } : p);
-                                }
-                                return [...prev, { id: q.id, progress: (q.target || 1), target: (q.target || 1), reward }];
-                              });
-                              // Instant trophy update
-                              if (reward) {
-                                userData.trophies = (userData.trophies || 0) + reward;
-                                setLeaderboard(prev => prev.map(l => l.id === userData.id ? { ...l, trophies: (l.trophies||0)+reward } : l));
-                              }
-                              Alert.alert('Quest', `Completed! +${reward} 🏆`);
-                            } else if (res?.error) {
-                              Alert.alert('Quest', res.error);
-                            }
-                          } catch(e){
-                            Alert.alert('Quest', e.message);
-                          }
-                        }}>
-                          <Text style={styles.questCardButtonText}>{alreadyCompleted && !isRepeatable ? 'Done' : 'Complete'}</Text>
-                        </TouchableOpacity>
+                    <View style={styles.questCardCompactContent}>
+                      <View style={{ flex:1 }}>
+                        <Text style={styles.questCardTitle} numberOfLines={1}>{q.name}</Text>
+                        <Text style={styles.questCardMiniMeta}>🏆 {q.trophy_reward || q.reward || 0} • {q.quest_type || 'type'}</Text>
+                      </View>
+                      <View>
+                        <Text style={[styles.questProgressBadge, alreadyCompleted && !isRepeatable && { backgroundColor:'#2d3a2d', color:'#6fa86f' }]}>
+                          {alreadyCompleted && !isRepeatable ? 'Done' : `${userQuest ? userQuest.progress : 0}/${userQuest ? userQuest.target : (q.target||1)}`}
+                        </Text>
                       </View>
                     </View>
                   </TouchableOpacity>
@@ -745,226 +687,7 @@ const MainScreen = ({ userData, onLogout }) => {
               </View>
             </View>
           </View>
-        )}
-
-        {page === 'CreateQuest' && (
-          <View style={styles.fullPageContainer}>
-            <View style={styles.fullPageHeader}>
-              <TouchableOpacity onPress={() => setPage('Quests')} style={styles.backButton}>
-                <Text style={styles.backButtonText}>← Back</Text>
-              </TouchableOpacity>
-              <Text style={styles.fullPageTitle}>Create New Quest</Text>
-            </View>
-            
-            <ScrollView style={styles.fullPageContent}>
-              <TextInput 
-                style={[styles.fullPageInput, { marginBottom: 16 }]} 
-                placeholder="Quest Name" 
-                placeholderTextColor="#888" 
-                value={questForm.name} 
-                onChangeText={(t) => setQuestForm({ ...questForm, name: t })} 
-              />
-              <TextInput 
-                style={[styles.fullPageInput, { minHeight: 100, marginBottom: 16 }]} 
-                placeholder="Quest Description" 
-                placeholderTextColor="#888" 
-                value={questForm.description} 
-                onChangeText={(t) => setQuestForm({ ...questForm, description: t })} 
-                multiline 
-              />
-              <TouchableOpacity style={[styles.fullPageButton, { marginBottom: 16 }]} onPress={async () => {
-                const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
-                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-                const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
-                if (asset) { setQuestImageUri(asset.uri); setQuestImageBase64(asset.base64 || null); }
-              }}>
-                <Text style={styles.fullPageButtonText}>📷 Add Image</Text>
-              </TouchableOpacity>
-              {!!questImageUri && <Image source={{ uri: questImageUri }} style={[styles.fullPagePreviewImage, { marginBottom: 16 }]} />}
-              <View style={[styles.row, { marginBottom: 16, justifyContent: 'space-around' }]}> 
-                {['daily','repeatable','one_time'].map((t) => (
-                  <TouchableOpacity key={t} style={[styles.typeButton, (questForm.type===t) && styles.typeButtonActive]} onPress={() => setQuestForm({ ...questForm, type: t })}>
-                    <Text style={[styles.typeButtonText, (questForm.type===t) && styles.typeButtonTextActive]}>{t}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <TextInput 
-                style={[styles.fullPageInput, { marginBottom: 24 }]} 
-                placeholder="Trophy Reward" 
-                placeholderTextColor="#888" 
-                keyboardType="numeric" 
-                value={questForm.reward} 
-                onChangeText={(t) => setQuestForm({ ...questForm, reward: t })} 
-              />
-              <TouchableOpacity style={styles.fullPageSubmitButton} onPress={async () => {
-                const name = (questForm.name || '').trim();
-                if (!name) { Alert.alert('Error', 'Please enter a quest name'); return; }
-                const reward = parseInt(questForm.reward || '0', 10) || 0;
-                try {
-                  let imageUrl = null;
-                  if (questImageUri) {
-                    imageUrl = await handleImageUpload({
-                      bucket: 'quest-images',
-                      fileUri: questImageUri,
-                      base64: questImageBase64,
-                      pathPrefix: `quests/${userData?.id || 'admin'}/`
-                    });
-                  }
-                  const res = await (createQuest ? createQuest({ name, description: questForm.description || null, image_url: imageUrl, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
-                  if (res?.success) {
-                    Alert.alert('Success', 'Quest created successfully!');
-                    setQuestForm({ name: '', description: '', reward: '10', type: 'daily' });
-                    setQuestImageUri('');
-                    setQuestImageBase64(null);
-                    setPage('Quests');
-                    try {
-                      const list = await getAllQuests({ onlyActive: true });
-                      setAllQuests(Array.isArray(list) ? list : []);
-                    } catch (_) {}
-                  } else {
-                    console.error('Create quest error:', res?.error);
-                    Alert.alert('Error', res?.error ? `Error: ${res.error}` : 'Failed to create quest');
-                  }
-                } catch (e) {
-                  console.error('Create quest exception:', e);
-                  Alert.alert('Error', e.message ? `Exception: ${e.message}` : 'Unknown error occurred');
-                }
-              }}>
-                <Text style={styles.fullPageSubmitButtonText}>🚀 Create Quest</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        )}
-
-        {page === 'CreateStory' && (
-          <View style={styles.fullPageContainer}>
-            <View style={styles.fullPageHeader}>
-              <TouchableOpacity onPress={() => setPage('Stories')} style={styles.backButton}>
-                <Text style={styles.backButtonText}>← Back</Text>
-              </TouchableOpacity>
-              <Text style={styles.fullPageTitle}>Create New Story</Text>
-            </View>
-            
-            <ScrollView style={styles.fullPageContent}>
-              <TextInput 
-                style={[styles.fullPageInput, { minHeight: 120, marginBottom: 16 }]} 
-                placeholder="What's your story today?" 
-                placeholderTextColor="#888" 
-                value={storyText} 
-                onChangeText={setStoryText} 
-                multiline 
-              />
-              <View style={[styles.row, { marginBottom: 16 }]}>
-                <TouchableOpacity style={[styles.fullPageButton, { flex: 1, marginRight: 8 }]} onPress={async () => {
-                  const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                  if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
-                  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-                  if (!result.canceled && result.assets?.[0]?.uri) {
-                    setStoryImageUri(result.assets[0].uri);
-                    setStoryImageBase64(result.assets[0].base64 || null);
-                  }
-                }}>
-                  <Text style={styles.fullPageButtonText}>📷 Gallery</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.fullPageButton, { flex: 1, marginLeft: 8 }]} onPress={async () => {
-                  const cap = await ImagePicker.requestCameraPermissionsAsync();
-                  if (cap.status !== 'granted') { Alert.alert('Permission', 'Camera required'); return; }
-                  const result = await ImagePicker.launchCameraAsync({ quality: 0.8, base64: true });
-                  if (!result.canceled && result.assets?.[0]?.uri) {
-                    setStoryImageUri(result.assets[0].uri);
-                    setStoryImageBase64(result.assets[0].base64 || null);
-                  }
-                }}>
-                  <Text style={styles.fullPageButtonText}>📸 Camera</Text>
-                </TouchableOpacity>
-              </View>
-              {!!storyImageUri && <Image source={{ uri: storyImageUri }} style={[styles.fullPagePreviewImage, { marginBottom: 16 }]} />}
-              <TouchableOpacity style={styles.fullPageSubmitButton} onPress={async () => {
-                if (!storyText.trim()) { Alert.alert('Error', 'Please enter story text'); return; }
-                await handleAddStory();
-                await notifyStoryPosted();
-                setPage('Stories');
-              }}>
-                <Text style={styles.fullPageSubmitButtonText}>✨ Publish Story</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        )}
-
-        {page === 'CreateChat' && (
-          <View style={styles.fullPageContainer}>
-            <View style={styles.fullPageHeader}>
-              <TouchableOpacity onPress={() => setPage('Chat')} style={styles.backButton}>
-                <Text style={styles.backButtonText}>← Back</Text>
-              </TouchableOpacity>
-              <Text style={styles.fullPageTitle}>Create New Group</Text>
-            </View>
-            
-            <ScrollView style={styles.fullPageContent}>
-              <TextInput 
-                style={[styles.fullPageInput, { marginBottom: 16 }]} 
-                placeholder="Group Name" 
-                placeholderTextColor="#888" 
-                value={newChatName} 
-                onChangeText={setNewChatName} 
-              />
-              
-              {/* Group Image Upload */}
-              <View style={[styles.row, { marginBottom: 16 }]}>
-                <TouchableOpacity style={[styles.fullPageButton, { flex: 1, marginRight: 8 }]} onPress={async () => {
-                  const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                  if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
-                  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
-                  if (!result.canceled && result.assets?.[0]?.uri) {
-                    setGroupImageUri(result.assets[0].uri);
-                    setGroupImageBase64(result.assets[0].base64 || null);
-                  }
-                }}>
-                  <Text style={styles.fullPageButtonText}>📷 Group Photo</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.fullPageButton, { flex: 1, marginLeft: 8 }]} onPress={async () => {
-                  const cap = await ImagePicker.requestCameraPermissionsAsync();
-                  if (cap.status !== 'granted') { Alert.alert('Permission', 'Camera required'); return; }
-                  const result = await ImagePicker.launchCameraAsync({ quality: 0.8, base64: true });
-                  if (!result.canceled && result.assets?.[0]?.uri) {
-                    setGroupImageUri(result.assets[0].uri);
-                    setGroupImageBase64(result.assets[0].base64 || null);
-                  }
-                }}>
-                  <Text style={styles.fullPageButtonText}>📸 Camera</Text>
-                </TouchableOpacity>
-              </View>
-              
-              {!!groupImageUri && <Image source={{ uri: groupImageUri }} style={[styles.fullPagePreviewImage, { marginBottom: 16 }]} />}
-              
-              <TouchableOpacity style={styles.fullPageSubmitButton} onPress={async () => {
-                if (!newChatName.trim()) { Alert.alert('Error', 'Please enter a group name'); return; }
-                
-                try {
-                  let imageUrl = null;
-                  if (groupImageUri) {
-                    imageUrl = await handleImageUpload({
-                      bucket: 'group-images',
-                      fileUri: groupImageUri,
-                      base64: groupImageBase64,
-                      pathPrefix: `groups/${userData?.id}/`
-                    });
-                  }
-                  
-                  await handleCreateChat(imageUrl);
-                  setGroupImageUri('');
-                  setGroupImageBase64(null);
-                  setPage('Chat');
-                } catch (error) {
-                  Alert.alert('Upload failed', error.message);
-                }
-              }}>
-                <Text style={styles.fullPageSubmitButtonText}>🚀 Create Group</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        )}
+  )}
 
         {page === 'Profile' && (
           <View style={styles.section}>
@@ -1135,8 +858,8 @@ const MainScreen = ({ userData, onLogout }) => {
         </View>
       )}
       
-      {/* Bottom tabs */}
-      {!['CreateQuest', 'CreateStory', 'CreateChat'].includes(page) && (
+  {/* Bottom tabs (hidden only for full-screen create chat) */}
+  {!['CreateChat'].includes(page) && (
         <View style={styles.bottomTabs}>
           {[
             { key: 'Chat', icon: '💬', label: 'Chat' },
@@ -1152,18 +875,85 @@ const MainScreen = ({ userData, onLogout }) => {
           ))}
         </View>
       )}
+      {/* Quest Detail Modal */}
+      <Modal visible={!!questDetail} transparent animationType="fade" onRequestClose={() => setQuestDetail(null)}>
+        <View style={styles.questDetailOverlay}>
+          <View style={styles.questDetailCard}>
+            <Text style={styles.questDetailTitle}>{questDetail?.name}</Text>
+            <Text style={styles.questDetailMeta}>Type: {questDetail?.quest_type || 'unknown'} • 🏆 {questDetail?.trophy_reward || questDetail?.reward || 0}</Text>
+            <ScrollView style={styles.questDetailScroll}>
+              <Text style={styles.questDetailDescription}>{questDetail?.description || 'No description.'}</Text>
+            </ScrollView>
+            <View style={styles.questDetailButtons}>
+              {!!(questDetail && (questDetail.canComplete)) && (
+                <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={async () => {
+                  try {
+                    const reward = questDetail.trophy_reward || questDetail.reward || 0;
+                    const res = await completeQuest({ userId: userData?.id, questId: questDetail.id, reward });
+                    if (res?.success) {
+                      setQuests(prev => {
+                        const exists = prev.find(p => p.id === questDetail.id);
+                        if (exists) {
+                          return prev.map(p => p.id === questDetail.id ? { ...p, progress: p.target || exists.target } : p);
+                        }
+                        return [...prev, { id: questDetail.id, progress: (questDetail.target || 1), target: (questDetail.target || 1), reward }];
+                      });
+                      if (reward) {
+                        userData.trophies = (userData.trophies || 0) + reward;
+                        setLeaderboard(prev => prev.map(l => l.id === userData.id ? { ...l, trophies: (l.trophies||0)+reward } : l));
+                      }
+                      setQuestDetail(null);
+                      Alert.alert('Quest', `Completed! +${reward} 🏆`);
+                    } else if (res?.error) {
+                      Alert.alert('Quest', res.error);
+                    }
+                  } catch(e){
+                    Alert.alert('Quest', e.message);
+                  }
+                }}>
+                  <Text style={styles.modalButtonText}>Complete</Text>
+                </TouchableOpacity>
+              )}
+              {userData?.username === 'SIMAX' && !!questDetail && (
+                <TouchableOpacity style={[styles.modalButton, { backgroundColor:'#b33939' }]} onPress={async () => {
+                  if (!deleteQuest) { Alert.alert('Admin','Delete not implemented'); return; }
+                  try {
+                    const res = await deleteQuest({ questId: questDetail.id });
+                    if (res?.success) {
+                      setAllQuests(prev => prev.filter(q => q.id !== questDetail.id));
+                      setQuestDetail(null);
+                    } else {
+                      Alert.alert('Delete', res?.error || 'Failed');
+                    }
+                  } catch(e){ Alert.alert('Delete', e.message); }
+                }}>
+                  <Text style={styles.modalButtonText}>Delete</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setQuestDetail(null)}>
+                <Text style={styles.modalButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Story Viewer Modal */}
       <Modal visible={!!storyViewer} transparent animationType="fade" onRequestClose={() => setStoryViewer(null)}>
         <View style={styles.storyViewerContainer}>
           <View style={styles.storyViewerBox}>
-            {storyViewer?.media_url ? (
+            {!!storyViewer?.media_url && (
               <Image source={{ uri: storyViewer.media_url }} style={styles.storyViewerImage} />
-            ) : null}
-            <Text style={styles.storyViewerAuthor}>{storyViewer?.author}</Text>
-            <Text style={styles.storyViewerText}>{storyViewer?.content}</Text>
-            <TouchableOpacity style={styles.closeStoryButton} onPress={() => setStoryViewer(null)}>
-              <Text style={styles.closeStoryButtonText}>Close</Text>
-            </TouchableOpacity>
+            )}
+            <View style={styles.storyViewerHeader}>
+              <Text style={styles.storyViewerAuthor}>{storyViewer?.author}</Text>
+              <TouchableOpacity onPress={() => setStoryViewer(null)} style={styles.closeStoryButton}>
+                <Text style={styles.closeStoryButtonText}>✖</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.storyViewerContent}>
+              <Text style={styles.storyViewerText}>{storyViewer?.content}</Text>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1760,6 +1550,108 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
+  // Compact quest list styles
+  questCardCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1f1f3a',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#2d3250',
+    minHeight: 70,
+  },
+  questCardCompleted: {
+    opacity: 0.5,
+  },
+  questCardCompactContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 10,
+    gap: 8,
+  },
+  questCardMiniMeta: {
+    color: '#888',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  questProgressBadge: {
+    backgroundColor: '#2a2f45',
+    color: '#fff',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    fontSize: 12,
+    overflow: 'hidden',
+  },
+  // Quest Detail Modal
+  questDetailOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  questDetailCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#22263a',
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#3b4a6a',
+  },
+  questDetailTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#4a90e2',
+    marginBottom: 8,
+  },
+  questDetailMeta: {
+    fontSize: 12,
+    color: '#aaa',
+    marginBottom: 12,
+  },
+  questDetailScroll: {
+    maxHeight: 250,
+    marginBottom: 20,
+  },
+  questDetailDescription: {
+    color: '#e0e6f2',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  questDetailButtons: {
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+  },
+  // Create Quest Modal styles
+  questCreateOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  questCreateCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#22263a',
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#3b4a6a',
+  },
+  questCreateTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#4a90e2',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
 
   // Profile Styles
   profileHeader: {
@@ -2019,22 +1911,22 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   whatsappChatList: {
-    backgroundColor: '#fff',
+  backgroundColor: '#1f2235',
     borderRadius: 12,
     overflow: 'hidden',
   },
   whatsappChatItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e5e5',
+    borderBottomColor: '#2a2f45',
   },
   whatsappAvatar: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#ddd',
+    backgroundColor: '#2a2f45',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
@@ -2079,9 +1971,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#075e54',
+    backgroundColor: '#1f2235',
     borderRadius: 12,
-    marginBottom: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#2a2f45'
   },
   whatsappBackButton: {
     marginRight: 16,
@@ -2094,7 +1988,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#ddd',
+    backgroundColor: '#2a2f45',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -2356,6 +2250,86 @@ const styles = StyleSheet.create({
   userAvatarLarge: { width: 96, height: 96, borderRadius: 48, backgroundColor: '#4a90e2', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
   userAvatarImgLarge: { width: 96, height: 96, borderRadius: 48 },
   userAvatarTextLarge: { color: '#fff', fontWeight: 'bold', fontSize: 28 },
+  // Story Viewer & Creation Modal Enhancements
+  storyCreateOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(10,10,20,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  storyCreateCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#22263a',
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#3b4a6a',
+  },
+  storyCreateTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#4a90e2',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  storyViewerContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  storyViewerBox: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#1f2535',
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#32415a',
+  },
+  storyViewerImage: {
+    width: '100%',
+    height: 260,
+    backgroundColor: '#2a2f45',
+  },
+  storyViewerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 18,
+  },
+  storyViewerAuthor: {
+    color: '#4a90e2',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  closeStoryButton: {
+    padding: 8,
+    backgroundColor: '#2a3245',
+    borderRadius: 20,
+    minWidth: 36,
+    alignItems: 'center',
+  },
+  closeStoryButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  storyViewerContent: {
+    maxHeight: 240,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    paddingTop: 12,
+  },
+  storyViewerText: {
+    color: '#e0e6f2',
+    fontSize: 15,
+    lineHeight: 22,
+  },
 });
 
 // Export with Error Boundary
