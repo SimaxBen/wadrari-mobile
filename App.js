@@ -210,6 +210,35 @@ const MainScreen = ({ userData, onLogout }) => {
   const [badges, setBadges] = useState([]);
   const [questImageUri, setQuestImageUri] = useState('');
   const [questImageBase64, setQuestImageBase64] = useState(null);
+  const [groupImageUri, setGroupImageUri] = useState('');
+  const [groupImageBase64, setGroupImageBase64] = useState(null);
+
+  // Standardized image upload function using group image logic
+  const handleImageUpload = async ({ bucket, fileUri, base64, pathPrefix, mimeType = 'image/jpeg' }) => {
+    try {
+      if (!fileUri && !base64) {
+        throw new Error('No image selected');
+      }
+      
+      let upload = await uploadImage({ bucket, fileUri, pathPrefix });
+      if (!upload?.success && base64) {
+        upload = await uploadImage({ bucket, base64, mimeType, pathPrefix });
+      }
+      
+      console.log(`${bucket} upload response:`, upload);
+      
+      if (!upload?.success) {
+        const error = upload?.error || 'Unknown error. Please check your network and try again.';
+        console.error(`${bucket} upload error:`, error);
+        throw new Error(error);
+      }
+      
+      return upload.url;
+    } catch (error) {
+      console.error(`${bucket} upload exception:`, error);
+      throw error;
+    }
+  };
 
   useEffect(() => {
     let unsubscribe = null;
@@ -336,10 +365,10 @@ const MainScreen = ({ userData, onLogout }) => {
     }
   };
 
-  const handleCreateChat = async () => {
+  const handleCreateChat = async (imageUrl = null) => {
     const name = (newChatName || '').trim();
     if (!name) return;
-    const res = await createChat({ name, type: 'group', created_by: userData?.id });
+    const res = await createChat({ name, type: 'group', created_by: userData?.id, image_url: imageUrl });
     if (res?.success && res.data) {
       setChats((prev) => [...prev, res.data]);
       setActiveChat(res.data);
@@ -351,17 +380,12 @@ const MainScreen = ({ userData, onLogout }) => {
     try {
       let mediaUrl = null;
       if (storyImageUri) {
-        let upload = await uploadImage({ bucket: 'story-images', fileUri: storyImageUri, pathPrefix: `${userData?.id}/` });
-        if (!upload?.success && storyImageBase64) {
-          upload = await uploadImage({ bucket: 'story-images', base64: storyImageBase64, mimeType: 'image/jpeg', pathPrefix: `${userData?.id}/` });
-        }
-        console.log('Story upload response:', upload);
-        if (!upload?.success) {
-          console.error('Story image upload error:', upload?.error);
-          Alert.alert('Upload failed', upload?.error ? `Error: ${upload.error}` : 'Unknown error. Please check your network and try again.');
-          return;
-        }
-        mediaUrl = upload.url;
+        mediaUrl = await handleImageUpload({
+          bucket: 'story-images',
+          fileUri: storyImageUri,
+          base64: storyImageBase64,
+          pathPrefix: `${userData?.id}/`
+        });
       }
       const res = await addStory({ userId: userData?.id, content: storyText, mediaUrl });
       console.log('AddStory response:', res);
@@ -376,7 +400,7 @@ const MainScreen = ({ userData, onLogout }) => {
       }
     } catch (e) {
       console.error('Add story exception:', e);
-      Alert.alert('Story failed', e.message ? `Exception: ${e.message}` : 'Unknown exception.');
+      Alert.alert('Upload failed', e.message ? `Exception: ${e.message}` : 'Unknown exception.');
     }
   };
 
@@ -388,12 +412,23 @@ const MainScreen = ({ userData, onLogout }) => {
     const q = questModal.quest;
     if (!q) return;
     try {
-      const res = await completeQuest({ userId: userData?.id, questId: q.id, reward: q.reward });
+      const reward = q.reward || q.trophy_reward || 0;
+      const res = await completeQuest({ userId: userData?.id, questId: q.id, reward: reward });
       console.log('CompleteQuest response:', res);
       if (res?.success) {
         setQuests((prev) => prev.map((item) => item.id === q.id ? { ...item, progress: item.target } : item));
         setQuestModal({ visible: false, quest: null });
-        Alert.alert('Quest Completed', `You earned ${q.reward} trophies!`);
+        Alert.alert('Quest Completed', `You earned ${reward} trophies!`);
+        
+        // Refresh user data and quests for real-time updates
+        try {
+          const [updatedQuests, updatedLeaderboard] = await Promise.all([
+            getQuestsForUser(userData?.id),
+            getLeaderboard({ limit: 20 })
+          ]);
+          setQuests(Array.isArray(updatedQuests) ? updatedQuests : []);
+          setLeaderboard(Array.isArray(updatedLeaderboard) ? updatedLeaderboard : []);
+        } catch (_) {}
       } else if (res?.error) {
         const msg = /permission|denied|rls|network|fail/i.test(res.error) ? 'Quest completion failed: ' + res.error : res.error;
         setQuestModal({ visible: false, quest: null });
@@ -444,40 +479,8 @@ const MainScreen = ({ userData, onLogout }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
-      <ScrollView style={[styles.mainContainer, { marginBottom: 70 }]}>
+      <ScrollView style={[styles.mainContainer, { marginBottom: page === 'Chat' ? 130 : 70 }]}>
         {/* Page header where relevant */}
-        {page === 'Leaderboard' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🏅 Top Players</Text>
-            <View style={styles.leaderboardContainer}>
-              {leaderboard.map((u, i) => (
-                <View key={u.id || i} style={styles.leaderboardItem}>
-                  <View style={styles.rankBadge}>
-                    <Text style={styles.rankText}>#{i + 1}</Text>
-                  </View>
-                  <View style={styles.userAvatarLeaderboard}>
-                    {u.avatar_url ? (
-                      <Image 
-                        source={{ uri: u.avatar_url }} 
-                        style={styles.userAvatarImgLeaderboard}
-                        onError={(e) => {
-                          console.log('Leaderboard avatar load error:', e.nativeEvent.error);
-                        }}
-                      />
-                    ) : (
-                      <Text style={styles.userAvatarTextLeaderboard}>{(u.username || 'U')[0]}</Text>
-                    )}
-                  </View>
-                  <View style={styles.leaderboardInfo}>
-                    <Text style={styles.leaderboardName}>{u.username || 'Unknown'}</Text>
-                    <Text style={styles.leaderboardTrophies}>{u.trophies ?? 0} 🏆</Text>
-                  </View>
-                  {i === 0 && <Text style={styles.crownEmoji}>👑</Text>}
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
 
         {page === 'Chat' && (
           <View style={styles.section}>
@@ -560,27 +563,6 @@ const MainScreen = ({ userData, onLogout }) => {
                     </View>
                   ))}
                 </View>
-                
-                {/* WhatsApp-style input */}
-                <View style={styles.whatsappInputContainer}>
-                  <TextInput 
-                    style={styles.whatsappInput} 
-                    placeholder="Type a message" 
-                    placeholderTextColor="#888" 
-                    value={newMessage} 
-                    onChangeText={setNewMessage} 
-                    multiline 
-                  />
-                  <TouchableOpacity 
-                    style={styles.whatsappSendButton} 
-                    onPress={async () => { 
-                      await handleSend(); 
-                      await notifyNewMessage(userData?.username, newMessage); 
-                    }}
-                  >
-                    <Text style={styles.whatsappSendText}>→</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             )}
           </View>
@@ -597,14 +579,23 @@ const MainScreen = ({ userData, onLogout }) => {
 
             {/* Stories Grid */}
             <View style={styles.storiesGrid}>
-              {stories.filter((s) => !s.expires_at || new Date(s.expires_at) > new Date()).map((s) => (
-                <TouchableOpacity key={s.id} style={styles.storyCard} onPress={() => setSelectedStory(s)}>
-                  {s.media_url ? (
+              {stories.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyStateText}>📚 No stories yet</Text>
+                  <Text style={styles.emptyStateSubtext}>Be the first to share your adventure!</Text>
+                </View>
+              ) : (
+                stories.filter((s) => !s.expires_at || new Date(s.expires_at) > new Date()).map((s) => (
+                  <TouchableOpacity key={s.id} style={styles.storyCard} onPress={() => setSelectedStory(s)}>
+                    {s.media_url ? (
                     <Image 
                       source={{ uri: s.media_url }} 
                       style={styles.storyImage}
                       onError={(e) => {
-                        console.log('Story image load error:', e.nativeEvent.error);
+                        console.log('Story image load error for URL:', s.media_url, e.nativeEvent.error);
+                      }}
+                      onLoad={() => {
+                        console.log('Story image loaded successfully:', s.media_url);
                       }}
                     />
                   ) : (
@@ -617,7 +608,8 @@ const MainScreen = ({ userData, onLogout }) => {
                     <Text style={styles.storyPreview} numberOfLines={2}>{s.content || ''}</Text>
                   </View>
                 </TouchableOpacity>
-              ))}
+                ))
+              )}
             </View>
           </View>
         )}
@@ -638,9 +630,15 @@ const MainScreen = ({ userData, onLogout }) => {
                   </View>
                   <View style={styles.userAvatarLeaderboard}>
                     {u.avatar_url ? (
-                      <Image source={{ uri: u.avatar_url }} style={styles.userAvatarImgLeaderboard} />
+                      <Image 
+                        source={{ uri: u.avatar_url }} 
+                        style={styles.userAvatarImgLeaderboard}
+                        onError={(e) => {
+                          console.log('Leaderboard avatar load error:', e.nativeEvent.error);
+                        }}
+                      />
                     ) : (
-                      <Text style={styles.userAvatarTextLeaderboard}>{(u.username || 'U')[0]}</Text>
+                      <Text style={styles.userAvatarTextLeaderboard}>{(u.username || 'U')[0].toUpperCase()}</Text>
                     )}
                   </View>
                   <View style={styles.leaderboardInfo}>
@@ -700,45 +698,7 @@ const MainScreen = ({ userData, onLogout }) => {
                       <Text style={styles.questCardDescription} numberOfLines={2}>{q.description || ''}</Text>
                       <View style={styles.questCardFooter}>
                         <Text style={styles.questCardReward}>🏆 {q.trophy_reward || 0}</Text>
-                        <TouchableOpacity style={styles.questCardButton} onPress={async () => {
-                          try {
-                            // Check if completeQuest function exists
-                            if (typeof completeQuest !== 'function') {
-                              Alert.alert('Error', 'Quest completion not available');
-                              return;
-                            }
-                            
-                            const result = await completeQuest({ questId: q.id, userId: userData?.id });
-                            if (result?.success) {
-                              Alert.alert('Quest Complete! 🎉', `You earned ${q.trophy_reward || 0} trophies!`);
-                              
-                              // Refresh user data and quests
-                              if (typeof getUserProfile === 'function') {
-                                const updatedUser = await getUserProfile({ userId: userData?.id });
-                                if (updatedUser?.success) {
-                                  setUserData(updatedUser.data);
-                                }
-                              }
-                              
-                              // Refresh quest list
-                              if (typeof getAllQuests === 'function') {
-                                const list = await getAllQuests({ onlyActive: true });
-                                setAllQuests(Array.isArray(list) ? list : []);
-                              }
-                              
-                              // Refresh leaderboard for real-time updates
-                              if (typeof getLeaderboard === 'function') {
-                                const leaderboardData = await getLeaderboard({ limit: 10 });
-                                setLeaderboard(Array.isArray(leaderboardData) ? leaderboardData : []);
-                              }
-                            } else {
-                              Alert.alert('Quest Error', result?.error || 'Failed to complete quest');
-                            }
-                          } catch (e) {
-                            console.error('Complete quest error:', e);
-                            Alert.alert('Quest Error', 'An error occurred while completing the quest');
-                          }
-                        }}>
+                        <TouchableOpacity style={styles.questCardButton} onPress={() => handleCompleteQuest(q)}>
                           <Text style={styles.questCardButtonText}>Complete Quest</Text>
                         </TouchableOpacity>
                       </View>
@@ -807,16 +767,12 @@ const MainScreen = ({ userData, onLogout }) => {
                 try {
                   let imageUrl = null;
                   if (questImageUri) {
-                    let uploaded = await uploadImage({ bucket: 'quest-images', fileUri: questImageUri, pathPrefix: `quests/${userData?.id || 'admin'}/` });
-                    if (!uploaded?.success && questImageBase64) {
-                      uploaded = await uploadImage({ bucket: 'quest-images', base64: questImageBase64, mimeType: 'image/jpeg', pathPrefix: `quests/${userData?.id || 'admin'}/` });
-                    }
-                    if (uploaded?.success) imageUrl = uploaded.url; 
-                    else {
-                      console.error('Quest image upload error:', uploaded?.error);
-                      Alert.alert('Quest', uploaded?.error ? `Error: ${uploaded.error}` : 'Image upload failed. Please check your network and try again.');
-                      return;
-                    }
+                    imageUrl = await handleImageUpload({
+                      bucket: 'quest-images',
+                      fileUri: questImageUri,
+                      base64: questImageBase64,
+                      pathPrefix: `quests/${userData?.id || 'admin'}/`
+                    });
                   }
                   const res = await (createQuest ? createQuest({ name, description: questForm.description || null, image_url: imageUrl, trophy_reward: reward, quest_type: questForm.type || 'daily', created_by: userData?.id }) : Promise.resolve({ success: false }));
                   if (res?.success) {
@@ -908,22 +864,68 @@ const MainScreen = ({ userData, onLogout }) => {
               <Text style={styles.fullPageTitle}>Create New Group</Text>
             </View>
             
-            <View style={styles.fullPageContent}>
+            <ScrollView style={styles.fullPageContent}>
               <TextInput 
-                style={[styles.fullPageInput, { marginBottom: 24 }]} 
+                style={[styles.fullPageInput, { marginBottom: 16 }]} 
                 placeholder="Group Name" 
                 placeholderTextColor="#888" 
                 value={newChatName} 
                 onChangeText={setNewChatName} 
               />
+              
+              {/* Group Image Upload */}
+              <View style={[styles.row, { marginBottom: 16 }]}>
+                <TouchableOpacity style={[styles.fullPageButton, { flex: 1, marginRight: 8 }]} onPress={async () => {
+                  const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                  if (lib.status !== 'granted') { Alert.alert('Permission', 'Gallery required'); return; }
+                  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
+                  if (!result.canceled && result.assets?.[0]?.uri) {
+                    setGroupImageUri(result.assets[0].uri);
+                    setGroupImageBase64(result.assets[0].base64 || null);
+                  }
+                }}>
+                  <Text style={styles.fullPageButtonText}>📷 Group Photo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.fullPageButton, { flex: 1, marginLeft: 8 }]} onPress={async () => {
+                  const cap = await ImagePicker.requestCameraPermissionsAsync();
+                  if (cap.status !== 'granted') { Alert.alert('Permission', 'Camera required'); return; }
+                  const result = await ImagePicker.launchCameraAsync({ quality: 0.8, base64: true });
+                  if (!result.canceled && result.assets?.[0]?.uri) {
+                    setGroupImageUri(result.assets[0].uri);
+                    setGroupImageBase64(result.assets[0].base64 || null);
+                  }
+                }}>
+                  <Text style={styles.fullPageButtonText}>📸 Camera</Text>
+                </TouchableOpacity>
+              </View>
+              
+              {!!groupImageUri && <Image source={{ uri: groupImageUri }} style={[styles.fullPagePreviewImage, { marginBottom: 16 }]} />}
+              
               <TouchableOpacity style={styles.fullPageSubmitButton} onPress={async () => {
                 if (!newChatName.trim()) { Alert.alert('Error', 'Please enter a group name'); return; }
-                await handleCreateChat();
-                setPage('Chat');
+                
+                try {
+                  let imageUrl = null;
+                  if (groupImageUri) {
+                    imageUrl = await handleImageUpload({
+                      bucket: 'group-images',
+                      fileUri: groupImageUri,
+                      base64: groupImageBase64,
+                      pathPrefix: `groups/${userData?.id}/`
+                    });
+                  }
+                  
+                  await handleCreateChat(imageUrl);
+                  setGroupImageUri('');
+                  setGroupImageBase64(null);
+                  setPage('Chat');
+                } catch (error) {
+                  Alert.alert('Upload failed', error.message);
+                }
               }}>
                 <Text style={styles.fullPageSubmitButtonText}>🚀 Create Group</Text>
               </TouchableOpacity>
-            </View>
+            </ScrollView>
           </View>
         )}
 
@@ -933,17 +935,16 @@ const MainScreen = ({ userData, onLogout }) => {
             <View style={styles.profileHeader}>
               <View style={styles.profileAvatarSection}>
                 <View style={styles.userAvatarLarge}>
-                  {(profile?.avatar_url || profileAvatarUrl || userData?.avatar_url) ? (
+                  {(profileAvatarUrl || profile?.avatar_url || userData?.avatar_url) ? (
                     <Image 
-                      source={{ uri: profileAvatarUrl || profile?.avatar_url || userData.avatar_url }} 
+                      source={{ uri: profileAvatarUrl || profile?.avatar_url || userData?.avatar_url }} 
                       style={styles.userAvatarImgLarge}
                       onError={(e) => {
                         console.log('Profile avatar load error:', e.nativeEvent.error);
-                        setProfileAvatarUrl(null);
                       }}
                     />
                   ) : (
-                    <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0]}</Text>
+                    <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0].toUpperCase()}</Text>
                   )}
                 </View>
                 <TouchableOpacity style={styles.changeAvatarButton} onPress={async () => {
@@ -954,27 +955,27 @@ const MainScreen = ({ userData, onLogout }) => {
                     const asset = (!result.canceled && result.assets?.[0]) ? result.assets[0] : null;
                     if (!asset) return;
                     setUpdatingAvatar(true);
-                    let uploaded = await uploadImage({ bucket: 'profile-avatars', fileUri: asset.uri, pathPrefix: `${userData?.id}/` });
-                    if (!uploaded?.success && asset.base64) {
-                      uploaded = await uploadImage({ bucket: 'profile-avatars', base64: asset.base64, mimeType: 'image/jpeg', pathPrefix: `${userData?.id}/` });
-                    }
-                    if (uploaded?.success) {
-                      const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl: uploaded.url });
-                      console.log('UpdateUserAvatar response:', resp);
-                      if (resp?.success) {
-                        setProfileAvatarUrl(uploaded.url);
-                        setProfile((p) => p ? { ...p, avatar_url: uploaded.url } : p);
-                        Alert.alert('Profile', 'Avatar updated.');
-                      } else {
-                        console.error('Update avatar error:', resp?.error);
-                        Alert.alert('Profile', resp?.error ? `Error: ${resp.error}` : 'Update failed.');
-                      }
+                    
+                    const avatarUrl = await handleImageUpload({
+                      bucket: 'profile-avatars',
+                      fileUri: asset.uri,
+                      base64: asset.base64,
+                      pathPrefix: `${userData?.id}/`
+                    });
+                    
+                    const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl });
+                    console.log('UpdateUserAvatar response:', resp);
+                    if (resp?.success) {
+                      setProfileAvatarUrl(avatarUrl);
+                      setProfile((p) => p ? { ...p, avatar_url: avatarUrl } : p);
+                      Alert.alert('Profile', 'Avatar updated.');
                     } else {
-                      console.error('Profile image upload error:', uploaded?.error);
-                      Alert.alert('Profile', uploaded?.error ? `Error: ${uploaded.error}` : 'Upload failed. Please check your network and try again.');
+                      console.error('Update avatar error:', resp?.error);
+                      Alert.alert('Profile', resp?.error ? `Error: ${resp.error}` : 'Update failed.');
                     }
                   } catch (e) {
                     console.error('Profile image upload exception:', e);
+                    Alert.alert('Upload failed', e.message);
                   } finally { setUpdatingAvatar(false); }
                 }}>
                   <Text style={styles.changeAvatarText}>📷 Change Photo</Text>
@@ -1073,6 +1074,30 @@ const MainScreen = ({ userData, onLogout }) => {
           </View>
         )}
   </ScrollView>
+  
+      {/* Fixed chat input above footer - only on Chat page */}
+      {page === 'Chat' && activeChat && (
+        <View style={styles.fixedChatInputContainer}>
+          <TextInput 
+            style={styles.whatsappInput} 
+            placeholder="Type a message" 
+            placeholderTextColor="#888" 
+            value={newMessage} 
+            onChangeText={setNewMessage} 
+            multiline 
+          />
+          <TouchableOpacity 
+            style={styles.whatsappSendButton} 
+            onPress={async () => { 
+              await handleSend(); 
+              await notifyNewMessage(userData?.username, newMessage); 
+            }}
+          >
+            <Text style={styles.whatsappSendText}>→</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      
       {/* Bottom tabs */}
       {!['CreateQuest', 'CreateStory', 'CreateChat'].includes(page) && (
         <View style={styles.bottomTabs}>
@@ -1166,7 +1191,8 @@ const styles = StyleSheet.create({
   },
   mainContainer: {
     flex: 1,
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   title: {
     fontSize: 32,
@@ -1419,6 +1445,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
+  },
+  emptyState: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    color: '#ccc',
+    marginBottom: 8,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
   },
   storyCard: {
     width: '48%',
@@ -1912,7 +1954,7 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   newChatButton: {
-    backgroundColor: '#25d366',
+    backgroundColor: '#4a90e2',
     borderRadius: 20,
     width: 40,
     height: 40,
@@ -2048,15 +2090,15 @@ const styles = StyleSheet.create({
   },
   whatsappMessageSent: {
     alignSelf: 'flex-end',
-    backgroundColor: '#dcf8c6',
+    backgroundColor: '#4a90e2',
     borderBottomRightRadius: 4,
   },
   whatsappMessageReceived: {
     alignSelf: 'flex-start',
-    backgroundColor: '#fff',
+    backgroundColor: '#2a2a4e',
     borderBottomLeftRadius: 4,
     borderWidth: 1,
-    borderColor: '#e5e5e5',
+    borderColor: '#444',
   },
   whatsappMessageSender: {
     fontSize: 12,
@@ -2066,12 +2108,12 @@ const styles = StyleSheet.create({
   },
   whatsappMessageText: {
     fontSize: 14,
-    color: '#333',
+    color: '#fff',
     marginBottom: 4,
   },
   whatsappMessageTime: {
     fontSize: 10,
-    color: '#999',
+    color: '#ccc',
     alignSelf: 'flex-end',
   },
   whatsappInputContainer: {
@@ -2079,19 +2121,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#2a2a4e',
     borderRadius: 25,
+  },
+  fixedChatInputContainer: {
+    position: 'absolute',
+    bottom: 70,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#1a1a2e',
+    borderTopWidth: 1,
+    borderTopColor: '#333',
   },
   whatsappInput: {
     flex: 1,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#333',
+    color: '#fff',
+    backgroundColor: '#2a2a4e',
+    borderRadius: 20,
+    marginRight: 8,
     maxHeight: 100,
   },
   whatsappSendButton: {
-    backgroundColor: '#25d366',
+    backgroundColor: '#4a90e2',
     borderRadius: 20,
     width: 40,
     height: 40,
