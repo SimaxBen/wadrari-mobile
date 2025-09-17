@@ -204,6 +204,7 @@ const MainScreen = ({ userData, onLogout }) => {
   const [publishingStory, setPublishingStory] = useState(false);
   const [showStoryCreateModal, setShowStoryCreateModal] = useState(false);
   const [showCreateQuestModal, setShowCreateQuestModal] = useState(false);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [questDetail, setQuestDetail] = useState(null); // selected quest for detail modal
   const [groupEdit, setGroupEdit] = useState({ visible:false, name:'', imageUri:'', imageBase64:null });
 
@@ -379,7 +380,7 @@ const MainScreen = ({ userData, onLogout }) => {
       let mediaUrl = null;
       if (storyImageUri) {
         mediaUrl = await handleImageUpload({
-          bucket: 'story-image',
+          bucket: 'story-images',
           fileUri: storyImageUri,
           base64: storyImageBase64,
           pathPrefix: `${userData?.id}/`
@@ -477,7 +478,7 @@ const MainScreen = ({ userData, onLogout }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
-      <ScrollView style={[styles.mainContainer, { marginBottom: page === 'Chat' ? 130 : 70 }]}>
+  <ScrollView style={[styles.mainContainer, { marginBottom: page === 'Chat' ? 130 : 70 }]} contentContainerStyle={{ paddingBottom:140 }}>
         {/* Page header where relevant */}
 
         {page === 'Chat' && (
@@ -492,33 +493,27 @@ const MainScreen = ({ userData, onLogout }) => {
                   </TouchableOpacity>
                 </View>
                 
-                {/* WhatsApp-style chat list */}
-                <View style={styles.whatsappChatList}>
-                  {chats.map((c) => (
-                    <TouchableOpacity key={c.id} style={styles.whatsappChatItem} onPress={async () => {
+                {/* Group list styled like quest compact list */}
+                <View style={{ gap:8 }}>
+                  {chats.map(c => (
+                    <TouchableOpacity key={c.id} style={styles.questCardCompact} onPress={async () => {
                       setActiveChat(c);
-                      const list = await getMessagesByChat({ chatId: c.id, limit: 100 });
-                      setMessages(Array.isArray(list) ? list : []);
+                      const list = await getMessagesByChat({ chatId:c.id, limit:100 });
+                      setMessages(Array.isArray(list)? list: []);
                     }}>
-                      <View style={styles.whatsappAvatar}>
-                        {c.image_url ? (
-                          <Image 
-                            source={{ uri: c.image_url }} 
-                            style={styles.whatsappAvatarImg}
-                            onError={(e) => {
-                              console.log('Group image load error:', e.nativeEvent.error);
-                            }}
-                          />
-                        ) : (
-                          <Text style={styles.whatsappAvatarText}>{(c.name || 'G')[0].toUpperCase()}</Text>
-                        )}
-                      </View>
-                      <View style={styles.whatsappChatInfo}>
-                        <View style={styles.whatsappChatHeader}>
-                          <Text style={styles.whatsappChatName}>{c.name}</Text>
-                          <Text style={styles.whatsappChatTime}>now</Text>
+                      {c.image_url ? (
+                        <Image source={{ uri:c.image_url }} style={styles.questCardImage} />
+                      ) : (
+                        <View style={styles.questCardPlaceholder}>
+                          <Text style={styles.questCardPlaceholderText}>{(c.name||'G')[0]}</Text>
                         </View>
-                        <Text style={styles.whatsappLastMessage}>Tap to open chat...</Text>
+                      )}
+                      <View style={styles.questCardCompactContent}>
+                        <View style={{ flex:1 }}>
+                          <Text style={styles.questCardTitle} numberOfLines={1}>{c.name}</Text>
+                          <Text style={styles.questCardMiniMeta} numberOfLines={1}>Chat • {c.last_message_at ? new Date(c.last_message_at).toLocaleDateString() : 'No msgs'}</Text>
+                        </View>
+                        <Text style={styles.questProgressBadge}>Open</Text>
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -526,6 +521,9 @@ const MainScreen = ({ userData, onLogout }) => {
               </View>
             ) : (
               <View style={styles.whatsappChatView}>
+                <TouchableOpacity style={[styles.addButton,{alignSelf:'flex-start', marginBottom:12}]} onPress={()=> setShowCreateGroupModal(true)}>
+                  <Text style={styles.addButtonText}>➕ Add Group</Text>
+                </TouchableOpacity>
                 {/* WhatsApp-style chat header */}
                 <View style={styles.whatsappChatViewHeader}>
                   <TouchableOpacity onPress={() => setActiveChat(null)} style={styles.whatsappBackButton}>
@@ -959,6 +957,155 @@ const MainScreen = ({ userData, onLogout }) => {
               )}
               <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setQuestDetail(null)}>
                 <Text style={styles.modalButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* Create Story Modal */}
+      <Modal visible={showStoryCreateModal} transparent animationType="fade" onRequestClose={()=> setShowStoryCreateModal(false)}>
+        <View style={styles.storyCreateOverlay}>
+          <View style={styles.storyCreateCard}>
+            <ScrollView contentContainerStyle={{ padding:20 }}>
+              <Text style={styles.storyCreateTitle}>Create Story</Text>
+              <TextInput
+                placeholder="What's happening?"
+                placeholderTextColor="#666"
+                value={storyText}
+                onChangeText={setStoryText}
+                multiline
+                style={{ minHeight:100, backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:16, borderWidth:1, borderColor:'#2a3245', marginBottom:16 }}
+              />
+              {storyImageUri ? (
+                <Image source={{ uri: storyImageUri }} style={{ width:'100%', height:200, borderRadius:16, marginBottom:16 }} />
+              ) : (
+                <TouchableOpacity onPress={async () => {
+                  try {
+                    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                    if (!perm.granted) { Alert.alert('Image','Permission denied'); return; }
+                    const img = await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, quality:0.7, base64:true });
+                    if (!img.canceled) {
+                      const asset = img.assets[0];
+                      setStoryImageUri(asset.uri); setStoryImageBase64(asset.base64 || null);
+                    }
+                  } catch(e){ Alert.alert('Image','Pick failed'); }
+                }} style={{ backgroundColor:'#1f2535', borderWidth:1, borderColor:'#2a3245', borderRadius:16, padding:24, alignItems:'center', marginBottom:16 }}>
+                  <Text style={{ color:'#4a90e2' }}>📷 Add Image</Text>
+                </TouchableOpacity>
+              )}
+              <View style={{ flexDirection:'row', gap:12 }}>
+                <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={async () => {
+                  try {
+                    if (!storyText.trim() && !storyImageUri) { Alert.alert('Story','Add text or image'); return; }
+                    setPublishingStory(true);
+                    let mediaUrl = null;
+                    if (storyImageUri) {
+                      const upload = await uploadImage({ bucket:'story-images', fileUri: storyImageUri, base64: storyImageBase64, pathPrefix:`${userData?.id}/` });
+                      if (upload?.success) mediaUrl = upload.url; else throw new Error(upload?.error||'Upload failed');
+                    }
+                    const res = await addStory({ content:storyText.trim(), author:userData?.username, mediaUrl });
+                    if (res?.success) {
+                      setStories(prev => [{ id:res.id, content:storyText.trim(), author:userData?.username, media_url:mediaUrl, created_at:new Date().toISOString() }, ...prev]);
+                      setShowStoryCreateModal(false);
+                      setStoryText(''); setStoryImageUri(''); setStoryImageBase64(null);
+                      notifyStoryPosted(userData?.username||'Someone');
+                    } else { Alert.alert('Story', res?.error||'Failed'); }
+                  } catch(e){ Alert.alert('Story', e.message); } finally { setPublishingStory(false); }
+                }}>
+                  <Text style={styles.modalButtonText}>{publishingStory? '...' : 'Post'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={()=> { setShowStoryCreateModal(false); }}>
+                  <Text style={styles.modalButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Create Quest Modal */}
+      <Modal visible={showCreateQuestModal} transparent animationType="fade" onRequestClose={()=> setShowCreateQuestModal(false)}>
+        <View style={styles.questCreateOverlay}>
+          <View style={styles.questCreateCard}>
+            <ScrollView contentContainerStyle={{ padding:4 }}>
+              <Text style={styles.questCreateTitle}>New Quest</Text>
+              <TextInput placeholder="Quest Name" placeholderTextColor="#666" value={questForm.name} onChangeText={t=> setQuestForm(f=>({...f,name:t}))} style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', marginBottom:12 }} />
+              <TextInput placeholder="Description" placeholderTextColor="#666" value={questForm.description} onChangeText={t=> setQuestForm(f=>({...f,description:t}))} multiline style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', minHeight:80, marginBottom:12 }} />
+              <TextInput placeholder="Reward (trophies)" placeholderTextColor="#666" value={questForm.reward} onChangeText={t=> setQuestForm(f=>({...f,reward:t}))} keyboardType="numeric" style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', marginBottom:12 }} />
+              <TextInput placeholder="Target (default 1)" placeholderTextColor="#666" value={questForm.target||''} onChangeText={t=> setQuestForm(f=>({...f,target:t}))} keyboardType="numeric" style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', marginBottom:12 }} />
+              <TextInput placeholder="Type (daily|repeatable|lifetime)" placeholderTextColor="#666" value={questForm.type} onChangeText={t=> setQuestForm(f=>({...f,type:t}))} style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', marginBottom:16 }} />
+              {questImageUri ? (
+                <Image source={{ uri: questImageUri }} style={{ width:'100%', height:160, borderRadius:12, marginBottom:12 }} />
+              ) : (
+                <TouchableOpacity onPress={async () => {
+                  try { const perm = await ImagePicker.requestMediaLibraryPermissionsAsync(); if(!perm.granted){Alert.alert('Image','Denied'); return;} const img= await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, quality:0.7, base64:true }); if(!img.canceled){ const asset=img.assets[0]; setQuestImageUri(asset.uri); setQuestImageBase64(asset.base64||null);} } catch(e){ Alert.alert('Image','Pick failed'); }
+                }} style={{ backgroundColor:'#1f2535', borderWidth:1, borderColor:'#2a3245', borderRadius:12, padding:24, alignItems:'center', marginBottom:16 }}>
+                  <Text style={{ color:'#4a90e2' }}>🖼️ Add Image</Text>
+                </TouchableOpacity>
+              )}
+              <View style={{ flexDirection:'row', gap:12 }}>
+                <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={async ()=> {
+                  try {
+                    if (!questForm.name.trim()) { Alert.alert('Quest','Name required'); return; }
+                    let imageUrl=null;
+                    if (questImageUri) {
+                      const upload = await uploadImage({ bucket:'quest-images', fileUri:questImageUri, base64:questImageBase64, pathPrefix:`${userData?.id}/` });
+                      if (upload?.success) imageUrl = upload.url; else throw new Error(upload?.error||'Upload failed');
+                    }
+                    const res = await createQuest({ name:questForm.name.trim(), description:questForm.description.trim(), reward:parseInt(questForm.reward)||0, trophy_reward:parseInt(questForm.reward)||0, quest_type:questForm.type||'daily', target: parseInt(questForm.target)||1, image_url:imageUrl });
+                    if (res?.success) {
+                      setAllQuests(prev => [{ id:res.id, name:questForm.name.trim(), description:questForm.description.trim(), reward:parseInt(questForm.reward)||0, trophy_reward:parseInt(questForm.reward)||0, quest_type:questForm.type||'daily', target: parseInt(questForm.target)||1, image_url:imageUrl }, ...prev]);
+                      setShowCreateQuestModal(false);
+                      setQuestForm({ name:'', description:'', reward:'10', type:'daily' }); setQuestImageUri(''); setQuestImageBase64(null);
+                    } else { Alert.alert('Quest', res?.error||'Failed'); }
+                  } catch(e){ Alert.alert('Quest', e.message); }
+                }}>
+                  <Text style={styles.modalButtonText}>Create</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={()=> setShowCreateQuestModal(false)}>
+                  <Text style={styles.modalButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Create Group Modal */}
+      <Modal visible={showCreateGroupModal} transparent animationType="fade" onRequestClose={()=> setShowCreateGroupModal(false)}>
+        <View style={styles.questDetailOverlay}>
+          <View style={styles.questDetailCard}>
+            <Text style={styles.questDetailTitle}>New Group</Text>
+            <TextInput value={newChatName} onChangeText={setNewChatName} placeholder="Group Name" placeholderTextColor="#666" style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', marginBottom:16 }} />
+            {groupImageUri ? (
+              <Image source={{ uri: groupImageUri }} style={{ width:120, height:120, borderRadius:60, alignSelf:'center', marginBottom:16 }} />
+            ) : (
+              <TouchableOpacity onPress={async () => {
+                try { const perm = await ImagePicker.requestMediaLibraryPermissionsAsync(); if(!perm.granted){Alert.alert('Image','Denied'); return;} const img= await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, quality:0.7, base64:true }); if(!img.canceled){ const asset=img.assets[0]; setGroupImageUri(asset.uri); setGroupImageBase64(asset.base64||null);} } catch(e){ Alert.alert('Image','Pick failed'); }
+              }} style={{ backgroundColor:'#1f2535', borderWidth:1, borderColor:'#2a3245', borderRadius:16, padding:24, alignItems:'center', marginBottom:16 }}>
+                <Text style={{ color:'#4a90e2' }}>🖼️ Add Group Image</Text>
+              </TouchableOpacity>
+            )}
+            <View style={{ flexDirection:'row', gap:12 }}>
+              <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={async () => {
+                try {
+                  if (!newChatName.trim()) { Alert.alert('Group','Name required'); return; }
+                  let imageUrl=null;
+                  if (groupImageUri) {
+                    const upload = await uploadImage({ bucket:'group-images', fileUri:groupImageUri, base64:groupImageBase64, pathPrefix:`${userData?.id}/` });
+                    if (upload?.success) imageUrl = upload.url; else throw new Error(upload?.error||'Upload failed');
+                  }
+                  const res = await createChat({ name:newChatName.trim(), imageUrl });
+                  if (res?.success) {
+                    setChats(prev => [{ id:res.id, name:newChatName.trim(), image_url:imageUrl, created_at:new Date().toISOString() }, ...prev]);
+                    setShowCreateGroupModal(false); setNewChatName(''); setGroupImageUri(''); setGroupImageBase64(null);
+                  } else { Alert.alert('Group', res?.error||'Failed'); }
+                } catch(e){ Alert.alert('Group', e.message); }
+              }}>
+                <Text style={styles.modalButtonText}>Create</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={()=> setShowCreateGroupModal(false)}>
+                <Text style={styles.modalButtonText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1750,7 +1897,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   questDetailCard: {
-  width: '60%',
+  width: '100%',
   maxWidth: 600,
     backgroundColor: '#22263a',
     borderRadius: 20,
@@ -1792,7 +1939,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   questCreateCard: {
-  width: '60%',
+  width: '100%',
   maxWidth: 640,
     backgroundColor: '#22263a',
     borderRadius: 20,
@@ -1812,6 +1959,13 @@ const styles = StyleSheet.create({
   profileHeader: {
     alignItems: 'center',
     marginBottom: 24,
+  },
+  profileAvatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    justifyContent: 'flex-start',
+    gap: 16,
   },
   profileAvatarSection: {
     alignItems: 'center',
@@ -1986,7 +2140,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
-  width: '60%',
+  width: '100%',
   maxWidth: 500,
     borderWidth: 2,
     borderColor: '#4a90e2',
@@ -2417,7 +2571,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   storyCreateCard: {
-  width: '60%',
+  width: '100%',
   maxWidth: 560,
     backgroundColor: '#22263a',
     borderRadius: 24,
@@ -2440,7 +2594,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   storyViewerBox: {
-  width: '60%',
+  width: '100%',
   maxWidth: 640,
     backgroundColor: '#1f2535',
     borderRadius: 24,
