@@ -527,10 +527,53 @@ export const completeQuest = async ({ userId, questId, reward = 0 }) => {
       }
     } catch (e) { console.log('completeQuest: daily_activities error', e); }
 
+    // Record lifetime completion
+    try {
+      await supabase.from('user_lifetime_quest_completions').insert([{ user_id: userId, quest_id: questId, trophies_earned: reward || 0, completed_at: new Date().toISOString() }]);
+    } catch (e) { console.log('lifetime quest completion log failed', e.message); }
+    // Record / increment daily completion
+    try {
+      const todayDate = new Date().toISOString().slice(0,10);
+      const { data: existingDaily, error: dailyFetchErr } = await supabase
+        .from('user_quest_completions')
+        .select('id, completion_count')
+        .eq('user_id', userId)
+        .eq('quest_id', questId)
+        .eq('date', todayDate)
+        .maybeSingle();
+      if (dailyFetchErr) throw dailyFetchErr;
+      if (existingDaily?.id) {
+        await supabase
+          .from('user_quest_completions')
+          .update({ completion_count: (existingDaily.completion_count || 0) + 1, trophies_earned: (reward||0), completed_at: new Date().toISOString() })
+          .eq('id', existingDaily.id);
+      } else {
+        await supabase
+          .from('user_quest_completions')
+          .insert([{ user_id: userId, quest_id: questId, completion_count: 1, trophies_earned: (reward||0), date: todayDate, completed_at: new Date().toISOString() }]);
+      }
+    } catch (e) { console.log('daily quest completion log failed', e.message); }
+
     return { success: true };
   } catch (e) {
     console.log('completeQuest error:', e);
     return { success: false, error: e.message };
+  }
+};
+
+export const getUserQuestDailyCompletions = async ({ userId }) => {
+  try {
+    if (!userId) return [];
+    const todayDate = new Date().toISOString().slice(0,10);
+    const { data, error } = await supabase
+      .from('user_quest_completions')
+      .select('quest_id, completion_count, trophies_earned')
+      .eq('user_id', userId)
+      .eq('date', todayDate);
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    return [];
   }
 };
 
@@ -539,7 +582,7 @@ export const getAllQuests = async ({ onlyActive = true } = {}) => {
   try {
     let q = supabase
       .from('quests')
-      .select('id, name, description, image_url, trophy_reward, quest_type, is_active, created_at')
+      .select('id, name, description, image_url, trophy_reward, quest_type, is_active, created_at, max_completions_per_day')
       .order('created_at', { ascending: false });
     if (onlyActive) q = q.eq('is_active', true);
     const { data, error } = await q;
@@ -571,6 +614,17 @@ export const createQuest = async ({ name, description, trophy_reward, quest_type
       .single();
     if (error) throw error;
     return { success: true, data };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+
+export const deleteQuest = async ({ questId }) => {
+  try {
+    if (!questId) throw new Error('questId required');
+    const { error } = await supabase.from('quests').delete().eq('id', questId);
+    if (error) throw error;
+    return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -623,6 +677,21 @@ export const updateChatImage = async ({ chatId, imageUrl }) => {
       .from('chats')
       .update({ image_url: imageUrl, updated_at: new Date().toISOString() })
       .eq('id', chatId);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+
+// Update chat name and/or image in one call
+export const updateChat = async ({ chatId, name, imageUrl }) => {
+  try {
+    if (!chatId) throw new Error('Missing chatId');
+    const payload = { updated_at: new Date().toISOString() };
+    if (typeof name === 'string' && name.trim()) payload.name = name.trim();
+    if (typeof imageUrl === 'string' && imageUrl.trim()) payload.image_url = imageUrl.trim();
+    if (Object.keys(payload).length === 1) throw new Error('Nothing to update');
+    await supabase.from('chats').update(payload).eq('id', chatId);
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };

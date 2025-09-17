@@ -28,7 +28,9 @@ import {
   addStoryComment,
   updateUserAvatar,
   deleteQuest,
-  createQuest
+  createQuest,
+  updateChat,
+  updateChatImage
 } from './src/services/supabase';
 
 // Simple Error Boundary (prevent full crash)
@@ -161,6 +163,7 @@ const MainScreen = ({ userData, onLogout }) => {
   const [showStoryCreateModal, setShowStoryCreateModal] = useState(false);
   const [showCreateQuestModal, setShowCreateQuestModal] = useState(false);
   const [questDetail, setQuestDetail] = useState(null); // selected quest for detail modal
+  const [groupEdit, setGroupEdit] = useState({ visible:false, name:'', imageUri:'', imageBase64:null });
 
   // Standardized image upload function using group image logic
   const handleImageUpload = async ({ bucket, fileUri, base64, pathPrefix, mimeType = 'image/jpeg' }) => {
@@ -496,7 +499,9 @@ const MainScreen = ({ userData, onLogout }) => {
                     <Text style={styles.whatsappChatHeaderName}>{activeChat.name}</Text>
                     <Text style={styles.whatsappChatHeaderStatus}>online</Text>
                   </View>
-                  <TouchableOpacity style={styles.whatsappMenuButton} onPress={() => setShowGroupSettings(true)}>
+                  <TouchableOpacity style={styles.whatsappMenuButton} onPress={() => {
+                    setGroupEdit({ visible:true, name: activeChat?.name || '', imageUri:'', imageBase64:null });
+                  }}>
                     <Text style={styles.whatsappMenuText}>⋮</Text>
                   </TouchableOpacity>
                 </View>
@@ -693,7 +698,7 @@ const MainScreen = ({ userData, onLogout }) => {
           <View style={styles.section}>
             {/* Profile Header */}
             <View style={styles.profileHeader}>
-              <View style={[styles.profileAvatarSection, { marginBottom: 8 }] }>
+              <View style={[styles.profileAvatarRow] }>
                 <View style={[styles.userAvatarLarge, { borderWidth:3, borderColor:'#4a90e2', shadowColor:'#4a90e2', shadowOpacity:0.4, shadowRadius:8 }] }>
                   {(profile?.avatar_url || userData?.avatar_url) ? (
                     <Image
@@ -725,9 +730,11 @@ const MainScreen = ({ userData, onLogout }) => {
                 }}>
                   <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Generating...' : '🎲 Generate Avatar'}</Text>
                 </TouchableOpacity>
+                <View style={{ marginLeft:16, flex:1, justifyContent:'center' }}>
+                  <Text style={[styles.profileUsername, { textAlign:'left', marginTop:4 }]}>{profile?.username || userData?.username}</Text>
+                  <Text style={[styles.profileJoinDate, { textAlign:'left' }]}>Joined {new Date(userData?.created_at || Date.now()).toLocaleDateString()}</Text>
+                </View>
               </View>
-              <Text style={[styles.profileUsername, { textAlign:'center', marginTop:4 }]}>{profile?.username || userData?.username}</Text>
-              <Text style={[styles.profileJoinDate, { textAlign:'center' }]}>Joined {new Date(userData?.created_at || Date.now()).toLocaleDateString()}</Text>
             </View>
 
             {/* Stats Cards */}
@@ -912,8 +919,90 @@ const MainScreen = ({ userData, onLogout }) => {
         </View>
       </Modal>
 
-      {/* Story Viewer Modal */}
-      <Modal visible={!!storyViewer} transparent animationType="fade" onRequestClose={() => setStoryViewer(null)}>
+      {/* Group Settings Modal */}
+      <Modal visible={groupEdit.visible} transparent animationType="fade" onRequestClose={()=> setGroupEdit(g => ({ ...g, visible:false }))}>
+        <View style={styles.questDetailOverlay}>
+          <View style={styles.questDetailCard}>
+            <Text style={styles.questDetailTitle}>Edit Group</Text>
+            <TextInput
+              value={groupEdit.name}
+              onChangeText={t => setGroupEdit(g => ({ ...g, name:t }))}
+              placeholder="Group Name"
+              placeholderTextColor="#666"
+              style={{ backgroundColor:'#1f2235', color:'#fff', padding:12, borderRadius:12, marginBottom:16, borderWidth:1, borderColor:'#2a3245' }}
+            />
+            <View style={{ alignItems:'center', marginBottom:16 }}>
+              {groupEdit.imageUri || activeChat?.image_url ? (
+                <Image source={{ uri: groupEdit.imageUri || activeChat.image_url }} style={{ width:96, height:96, borderRadius:48, marginBottom:12 }} />
+              ) : (
+                <View style={{ width:96, height:96, borderRadius:48, backgroundColor:'#2a3245', alignItems:'center', justifyContent:'center', marginBottom:12 }}>
+                  <Text style={{ color:'#4a90e2', fontSize:24 }}>{(groupEdit.name||activeChat?.name||'G')[0]}</Text>
+                </View>
+              )}
+              <TouchableOpacity onPress={async () => {
+                try {
+                  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                  if (!perm.granted) { Alert.alert('Image','Permission denied'); return; }
+                  const img = await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, quality:0.7, base64:true });
+                  if (!img.canceled) {
+                    const asset = img.assets[0];
+                    setGroupEdit(g => ({ ...g, imageUri: asset.uri, imageBase64: asset.base64 }));
+                  }
+                } catch(e){ Alert.alert('Image','Pick failed'); }
+              }} style={{ backgroundColor:'#2a3245', paddingVertical:10, paddingHorizontal:20, borderRadius:20 }}>
+                <Text style={{ color:'#fff', fontSize:12 }}>Choose Image</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ flexDirection:'row', gap:12 }}>
+              <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={async () => {
+                try {
+                  if (!activeChat?.id) return;
+                  let imageUrl = null;
+                  if (groupEdit.imageUri) {
+                    const upload = await uploadImage({ bucket:'group-images', fileUri: groupEdit.imageUri, base64: groupEdit.imageBase64, pathPrefix:`${userData?.id}/` });
+                    if (upload?.success) imageUrl = upload.url; else if (upload?.error) throw new Error(upload.error);
+                  }
+                  const res = await updateChat({ chatId: activeChat.id, name: groupEdit.name, imageUrl });
+                  if (res?.success) {
+                    setChats(prev => prev.map(c => c.id === activeChat.id ? { ...c, name: groupEdit.name || c.name, image_url: imageUrl || c.image_url } : c));
+                    setActiveChat(c => c ? { ...c, name: groupEdit.name || c.name, image_url: imageUrl || c.image_url } : c);
+                    setGroupEdit(g => ({ ...g, visible:false }));
+                  } else if (res?.error) {
+                    Alert.alert('Group', res.error);
+                  }
+                } catch(e){ Alert.alert('Group', e.message); }
+              }}>
+                <Text style={styles.modalButtonText}>Save</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={()=> setGroupEdit(g => ({ ...g, visible:false }))}>
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Story Viewer Modal with likes & comments */}
+      <Modal
+        visible={!!storyViewer}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setStoryViewer(null)}
+        onShow={async () => {
+          try {
+            if (!storyViewer?.id) return;
+            // fetch reactions (likers)
+            const reactions = await getStoryReactions({ storyId: storyViewer.id });
+            const likeUsers = (reactions || []).filter(r => r.reaction_type === 'like').map(r => r.user_id);
+            // fetch usernames for likers
+            // reuse existing storyComments structure for display; load comments
+            await loadComments(storyViewer.id);
+            // map user ids -> usernames from existing stories list if available
+            // We'll store usernames separately inside local state-like derived arrays (no extra state variable to keep patch small)
+            setStoryLikes(prev => ({ ...prev, [storyViewer.id]: likeUsers.length }));
+          } catch (e) { console.log('Story modal load error', e); }
+        }}
+      >
         <View style={styles.storyViewerContainer}>
           <View style={styles.storyViewerBox}>
             {!!storyViewer?.media_url && (
@@ -927,6 +1016,50 @@ const MainScreen = ({ userData, onLogout }) => {
             </View>
             <ScrollView style={styles.storyViewerContent}>
               <Text style={styles.storyViewerText}>{storyViewer?.content}</Text>
+              {/* Likes Section */}
+              <View style={{ marginTop:16, marginBottom:12 }}>
+                <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between' }}>
+                  <Text style={{ color:'#4a90e2', fontWeight:'bold' }}>❤️ Likes ({storyLikes[storyViewer?.id] || 0})</Text>
+                  <TouchableOpacity
+                    onPress={() => toggleLike(storyViewer.id)}
+                    style={{ backgroundColor:'#2a3245', paddingVertical:6, paddingHorizontal:14, borderRadius:20 }}
+                  >
+                    <Text style={{ color:'#fff', fontSize:12 }}>
+                      {myLikedStories.includes(storyViewer.id) ? 'Unlike' : 'Like'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              {/* Comments Section */}
+              <View style={{ marginTop:4 }}>
+                <Text style={{ color:'#4a90e2', fontWeight:'bold', marginBottom:8 }}>💬 Comments</Text>
+                {(storyComments[storyViewer.id] || []).length === 0 && (
+                  <Text style={{ color:'#777', fontSize:12 }}>No comments yet</Text>
+                )}
+                {(storyComments[storyViewer.id] || []).map(c => (
+                  <View key={c.id} style={{ marginBottom:10, backgroundColor:'#1f2535', padding:10, borderRadius:12, borderWidth:1, borderColor:'#2a3245' }}>
+                    <Text style={{ color:'#4a90e2', fontSize:12, fontWeight:'bold', marginBottom:4 }}>{c.username || 'User'}</Text>
+                    <Text style={{ color:'#e0e6f2', fontSize:13 }}>{c.content}</Text>
+                    <Text style={{ color:'#666', fontSize:10, marginTop:4 }}>{new Date(c.created_at).toLocaleString()}</Text>
+                  </View>
+                ))}
+                {/* Add comment input */}
+                <View style={{ flexDirection:'row', alignItems:'center', marginTop:8, gap:8 }}>
+                  <TextInput
+                    value={newCommentText}
+                    onChangeText={setNewCommentText}
+                    placeholder="Write a comment..."
+                    placeholderTextColor="#666"
+                    style={{ flex:1, backgroundColor:'#2a3245', color:'#fff', paddingHorizontal:12, paddingVertical:10, borderRadius:20, fontSize:13 }}
+                  />
+                  <TouchableOpacity
+                    onPress={() => sendComment(storyViewer.id)}
+                    style={{ backgroundColor:'#4a90e2', paddingHorizontal:16, paddingVertical:10, borderRadius:20 }}
+                  >
+                    <Text style={{ color:'#fff', fontWeight:'bold', fontSize:12 }}>Send</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </ScrollView>
           </View>
         </View>
@@ -1477,15 +1610,17 @@ const styles = StyleSheet.create({
     borderColor: '#3b3b69',
   },
   questCardImage: {
-    width: '100%',
-    height: 120,
+  width: 56,
+  height: 56,
+  borderRadius: 10,
   },
   questCardPlaceholder: {
-    width: '100%',
-    height: 120,
-    backgroundColor: '#3b3b69',
-    alignItems: 'center',
-    justifyContent: 'center',
+  width: 56,
+  height: 56,
+  backgroundColor: '#3b3b69',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 10,
   },
   questCardPlaceholderText: {
     fontSize: 32,
@@ -1526,15 +1661,15 @@ const styles = StyleSheet.create({
   },
   // Compact quest list styles
   questCardCompact: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1f1f3a',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#2d3250',
-    minHeight: 70,
+  flexDirection: 'row',
+  alignItems: 'center',
+  backgroundColor: '#1f1f3a',
+  borderRadius: 12,
+  padding: 8,
+  marginBottom: 8,
+  borderWidth: 1,
+  borderColor: '#2d3250',
+  minHeight: 64,
   },
   questCardCompleted: {
     opacity: 0.5,
@@ -1569,8 +1704,8 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   questDetailCard: {
-    width: '100%',
-    maxWidth: 400,
+  width: '60%',
+  maxWidth: 600,
     backgroundColor: '#22263a',
     borderRadius: 20,
     padding: 24,
@@ -1611,8 +1746,8 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   questCreateCard: {
-    width: '100%',
-    maxWidth: 420,
+  width: '60%',
+  maxWidth: 640,
     backgroundColor: '#22263a',
     borderRadius: 20,
     padding: 20,
@@ -1805,7 +1940,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
-    width: 300,
+  width: '60%',
+  maxWidth: 500,
     borderWidth: 2,
     borderColor: '#4a90e2',
   },
@@ -1862,14 +1998,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 16,
     paddingHorizontal: 20,
-    backgroundColor: '#075e54',
+    backgroundColor: '#22263a',
     borderRadius: 12,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#33415a'
   },
   whatsappTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#4a90e2',
   },
   newChatButton: {
     backgroundColor: '#4a90e2',
@@ -2233,13 +2371,13 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   storyCreateCard: {
-    width: '100%',
-    maxWidth: 380,
+  width: '60%',
+  maxWidth: 560,
     backgroundColor: '#22263a',
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: 24,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#3b4a6a',
+    borderColor: '#32415a',
   },
   storyCreateTitle: {
     fontSize: 20,
@@ -2256,8 +2394,8 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   storyViewerBox: {
-    width: '100%',
-    maxWidth: 420,
+  width: '60%',
+  maxWidth: 640,
     backgroundColor: '#1f2535',
     borderRadius: 24,
     overflow: 'hidden',
