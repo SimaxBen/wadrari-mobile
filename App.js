@@ -549,7 +549,7 @@ const MainScreen = ({ userData, onLogout }) => {
                 </View>
                 
                 <FlatList
-                  data={messages.filter(m => m.chat_id === activeChat.id)}
+                  data={messages.filter(m => activeChat?.id ? m.chat_id === activeChat.id : true)}
                   keyExtractor={(item) => item.id.toString()}
                   style={styles.whatsappMessageArea}
                   ref={messageScrollRef}
@@ -1004,9 +1004,9 @@ const MainScreen = ({ userData, onLogout }) => {
                     const upload = await uploadImage({ bucket:'group-images', fileUri: groupEdit.imageUri, base64: groupEdit.imageBase64, pathPrefix:`${userData?.id}/` });
                     if (upload?.success) imageUrl = upload.url; else if (upload?.error) throw new Error(upload.error);
                   }
-                  const res = await updateChat({ chatId: activeChat.id, name: groupEdit.name, imageUrl });
+                  const res = await updateChat({ chatId: activeChat?.id, name: groupEdit.name, imageUrl });
                   if (res?.success) {
-                    setChats(prev => prev.map(c => c.id === activeChat.id ? { ...c, name: groupEdit.name || c.name, image_url: imageUrl || c.image_url } : c));
+                    setChats(prev => prev.map(c => (activeChat?.id && c.id === activeChat.id) ? { ...c, name: groupEdit.name || c.name, image_url: imageUrl || c.image_url } : c));
                     setActiveChat(c => c ? { ...c, name: groupEdit.name || c.name, image_url: imageUrl || c.image_url } : c);
                     setGroupEdit(g => ({ ...g, visible:false }));
                   } else if (res?.error) {
