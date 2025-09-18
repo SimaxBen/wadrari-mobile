@@ -55,6 +55,13 @@ export const requestNotificationPermissions = configureNotifications;
 export const notifyNewStory = async ({ author, title }) => {
 	await notify(author || 'New story', title?.slice(0, 100) || 'A new story was posted');
 };
+export const notifyStoryLike = async (fromUser, storyTitle) => {
+	await notify('New Like', `${fromUser || 'Someone'} liked your story${storyTitle ? ': ' + storyTitle : ''}`);
+};
+
+export const notifyStoryComment = async (fromUser, storyTitle, commentText) => {
+	await notify('New Comment', `${fromUser || 'Someone'} commented on your story${storyTitle ? ': ' + storyTitle : ''}\n"${commentText}"`);
+};
 
 export default {
 	requestNotificationPermissions,

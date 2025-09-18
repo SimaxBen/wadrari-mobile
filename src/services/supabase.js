@@ -539,10 +539,6 @@ export const completeQuest = async ({ userId, questId, reward = 0 }) => {
       }
     } catch (e) { console.log('completeQuest: daily_activities error', e); }
 
-    // Record lifetime completion
-    try {
-      await supabase.from('user_lifetime_quest_completions').insert([{ user_id: userId, quest_id: questId, trophies_earned: reward || 0, completed_at: new Date().toISOString() }]);
-    } catch (e) { console.log('lifetime quest completion log failed', e.message); }
     // Record / increment daily completion
     try {
       const todayDate = new Date().toISOString().slice(0,10);

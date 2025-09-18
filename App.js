@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, StatusBar, Alert, ScrollView, Image, Modal, FlatList } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
-import { configureNotifications, notifyNewMessage, notifyStoryPosted } from './src/services/notifications';
+import { configureNotifications, notifyNewMessage, notifyStoryPosted, notifyStoryLike, notifyStoryComment } from './src/services/notifications';
 import { 
   loginWithUsername,
   getChats,
@@ -268,15 +268,15 @@ const MainScreen = ({ userData, onLogout }) => {
                 let alreadyCompleted = false;
                 let progress = q.progress ?? 0;
                 if (c) {
-                  progress = Math.max(progress, c.completion_count || 0);
+                  progress = c.completion_count || 0;
                 }
-                // Completion logic by type
+                // Completion logic by type, using user_quest_completions for all types
                 if (questType === 'one_time') {
-                  alreadyCompleted = progress >= 1;
+                  alreadyCompleted = progress >= (q.target || 1);
                 } else if (questType === 'daily') {
-                  alreadyCompleted = progress >= 1;
+                  alreadyCompleted = progress >= (q.target || 1);
                 } else if (questType === 'repeatable') {
-                  alreadyCompleted = false; // always allow
+                  alreadyCompleted = false; // always allow, but show count
                 }
                 return { ...q, quest_type: questType, progress, alreadyCompleted };
               });
@@ -488,7 +488,12 @@ const MainScreen = ({ userData, onLogout }) => {
       }
     } else {
       const res = await likeStory({ storyId, userId: userData.id });
-      if (res?.success) {
+      if (res.success) {
+        // Notify story owner if not self
+        if (storyOwnerId && storyOwnerId !== userData.id) {
+          const owner = users.find(u => u.id === storyOwnerId);
+          await notifyStoryLike(userData.username, storyTitle || '');
+        }
         setMyLikedStories((prev) => [...prev, storyId]);
         setStoryLikes((prev) => ({ ...prev, [storyId]: (prev[storyId] || 0) + 1 }));
       }
@@ -506,9 +511,14 @@ const MainScreen = ({ userData, onLogout }) => {
     const text = (newCommentText || '').trim();
     if (!text || !userData?.id || !storyId) return;
     const res = await addStoryComment({ storyId, userId: userData.id, content: text });
-    if (res?.success && res.data) {
-  const enriched = { ...res.data, username: userData?.username || null };
-  setStoryComments((prev) => ({ ...prev, [storyId]: [...(prev[storyId] || []), enriched] }));
+    if (res.success) {
+      // Notify story owner if not self
+      if (storyOwnerId && storyOwnerId !== userData.id) {
+        const owner = users.find(u => u.id === storyOwnerId);
+        await notifyStoryComment(userData.username, storyTitle || '', text);
+      }
+      const enriched = { ...res.data, username: userData?.username || null };
+      setStoryComments((prev) => ({ ...prev, [storyId]: [...(prev[storyId] || []), enriched] }));
       setNewCommentText('');
     }
   };
@@ -779,7 +789,7 @@ const MainScreen = ({ userData, onLogout }) => {
                           </View>
                           <View>
                             <Text style={[styles.questProgressBadge, alreadyCompleted && !isRepeatable && { backgroundColor:'#2d3a2d', color:'#6fa86f' }]}> 
-                              {alreadyCompleted && !isRepeatable ? 'Done' : (isRepeatable ? `${progress}` : `${progress}/${q.target||1}`)}
+                              {alreadyCompleted && !isRepeatable ? (q.quest_type === 'daily' ? 'Done for today' : 'Done') : (isRepeatable ? `${progress}` : `${progress}/${q.target||1}`)}
                             </Text>
                           </View>
                         </View>
@@ -872,6 +882,28 @@ const MainScreen = ({ userData, onLogout }) => {
                 <View style={styles.statCard}>
                   <Text style={styles.statNumber}>{profile?.current_streak ?? userData?.current_streak ?? 0}</Text>
                   <Text style={styles.statLabel}>🔥 Streak</Text>
+                  {(profile?.current_streak ?? userData?.current_streak ?? 0) > 0 && (
+                    <TouchableOpacity
+                      style={styles.streakRewardButton}
+                      onPress={async () => {
+                        const streak = profile?.current_streak ?? userData?.current_streak ?? 0;
+                        const reward = Math.min(100, streak * 3); // Example: 3 trophies per day, max 100
+                        try {
+                          const res = await completeQuest({ userId: userData?.id, questId: 'streak_reward', reward });
+                          if (res.success) {
+                            Alert.alert('Streak Reward', `You earned ${reward} trophies for your streak!`);
+                            setProfile((p) => p ? { ...p, trophies: (p.trophies || 0) + reward, current_streak: 0 } : p);
+                          } else {
+                            Alert.alert('Streak Reward', res.error || 'Failed to claim reward');
+                          }
+                        } catch (e) {
+                          Alert.alert('Streak Reward', 'Error claiming reward');
+                        }
+                      }}
+                    >
+                      <Text style={styles.streakRewardButtonText}>Claim Reward</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
 
@@ -879,15 +911,9 @@ const MainScreen = ({ userData, onLogout }) => {
               <View style={styles.profileSection}>
                 <Text style={styles.profileSectionTitle}>🎯 Active Quests</Text>
                 <View style={styles.questsContainer}>
-                  {quests.filter(q => {
-                    // For daily quests, show if not completed today
-                    if (q.quest_type === 'daily') return !q.alreadyCompleted;
-                    // For one_time, show if not completed ever
-                    if (q.quest_type === 'one_time') return !q.alreadyCompleted;
-                    // For repeatable, always show
-                    if (q.quest_type === 'repeatable') return true;
-                    return false;
-                  }).map((q) => (
+                  {quests.filter(q => (
+                    (q.id === 'daily_msg_10' || q.id === 'daily_story_3')
+                  )).map((q) => (
                     <View key={q.id} style={styles.dailyQuestCard}>
                       <View style={styles.questProgress}>
                         <View style={styles.questProgressBar}>
@@ -902,12 +928,9 @@ const MainScreen = ({ userData, onLogout }) => {
                       </View>
                     </View>
                   ))}
-                  {quests.filter(q => {
-                    if (q.quest_type === 'daily') return !q.alreadyCompleted;
-                    if (q.quest_type === 'one_time') return !q.alreadyCompleted;
-                    if (q.quest_type === 'repeatable') return true;
-                    return false;
-                  }).length === 0 && (
+                  {quests.filter(q => (
+                    (q.id === 'daily_msg_10' || q.id === 'daily_story_3')
+                  )).length === 0 && (
                     <Text style={{ color:'#888', fontSize:12 }}>All quests completed 🎉</Text>
                   )}
                 </View>
@@ -1870,6 +1893,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginVertical: 10,
   },
+  modalQuestImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 12,
+    alignSelf: 'center',
+    marginVertical: 12,
+    backgroundColor: '#222',
+  },
   typeButton: {
     backgroundColor: '#3b3b69',
     borderRadius: 20,
@@ -2484,7 +2515,7 @@ const styles = StyleSheet.create({
   },
   whatsappMessageReceived: {
     alignSelf: 'flex-start',
-    backgroundColor: '#2a2a4e',
+    backgroundColor: '#2a2f45',
     borderBottomLeftRadius: 4,
     borderWidth: 1,
     borderColor: '#444',
@@ -2774,7 +2805,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 });
-
+ 
 // Export with Error Boundary
 export default () => (
   <ErrorBoundary>
