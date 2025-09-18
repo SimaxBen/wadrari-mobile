@@ -30,7 +30,9 @@ import {
   deleteQuest,
   createQuest,
   updateChat,
-  updateChatImage
+  updateChatImage,
+  getUserQuestDailyCompletions,
+  getUserQuestTotalCompletions
 } from './src/services/supabase';
 
 // Simple Error Boundary (prevent full crash)
@@ -258,29 +260,34 @@ const MainScreen = ({ userData, onLogout }) => {
         let baseQuests = Array.isArray(qs) ? qs : [];
         // Fetch completions for all quest types
         try {
-          if (typeof getUserQuestDailyCompletions === 'function') {
-            const comps = await getUserQuestDailyCompletions({ userId: userData.id });
-            if (Array.isArray(comps) && comps.length) {
-              const compMap = Object.fromEntries(comps.map(c => [c.quest_id, c]));
-              baseQuests = baseQuests.map(q => {
-                let questType = q.quest_type === 'lifetime' ? 'one_time' : q.quest_type;
-                const c = compMap[q.id];
-                let alreadyCompleted = false;
-                let progress = q.progress ?? 0;
-                if (c) {
-                  progress = c.completion_count || 0;
-                }
-                // Completion logic by type, using user_quest_completions for all types
-                if (questType === 'one_time') {
-                  alreadyCompleted = progress >= (q.target || 1);
-                } else if (questType === 'daily') {
-                  alreadyCompleted = progress >= (q.target || 1);
-                } else if (questType === 'repeatable') {
-                  alreadyCompleted = false; // always allow, but show count
-                }
-                return { ...q, quest_type: questType, progress, alreadyCompleted };
-              });
-            }
+          if (typeof getUserQuestDailyCompletions === 'function' && typeof getUserQuestTotalCompletions === 'function') {
+            const [dailyComps, totalComps] = await Promise.all([
+              getUserQuestDailyCompletions({ userId: userData.id }),
+              getUserQuestTotalCompletions({ userId: userData.id })
+            ]);
+            const dailyMap = Object.fromEntries((dailyComps || []).map(c => [c.quest_id, c]));
+            const totalMap = Object.fromEntries((totalComps || []).map(c => [c.quest_id, c.total]));
+            baseQuests = baseQuests.map(q => {
+              let questType = q.quest_type === 'lifetime' ? 'one_time' : q.quest_type;
+              const dailyC = dailyMap[q.id];
+              const totalC = totalMap[q.id] || 0;
+              let alreadyCompleted = false;
+              let progress = q.progress ?? 0;
+              if (questType === 'repeatable') {
+                progress = totalC;
+              } else if (dailyC) {
+                progress = dailyC.completion_count || 0;
+              }
+              // Completion logic by type, using user_quest_completions for all types
+              if (questType === 'one_time') {
+                alreadyCompleted = progress >= (q.target || 1);
+              } else if (questType === 'daily') {
+                alreadyCompleted = progress >= (q.target || 1);
+              } else if (questType === 'repeatable') {
+                alreadyCompleted = false; // always allow, but show count
+              }
+              return { ...q, quest_type: questType, progress, alreadyCompleted };
+            });
           }
         } catch(_) {}
         setQuests(baseQuests);

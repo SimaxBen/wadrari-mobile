@@ -585,6 +585,25 @@ export const getUserQuestDailyCompletions = async ({ userId }) => {
   }
 };
 
+export const getUserQuestTotalCompletions = async ({ userId }) => {
+  try {
+    if (!userId) return [];
+    const { data, error } = await supabase
+      .from('user_quest_completions')
+      .select('quest_id, completion_count')
+      .eq('user_id', userId);
+    if (error) throw error;
+    // Aggregate total per quest
+    const totals = {};
+    (data || []).forEach(c => {
+      totals[c.quest_id] = (totals[c.quest_id] || 0) + (c.completion_count || 0);
+    });
+    return Object.entries(totals).map(([quest_id, total]) => ({ quest_id, total }));
+  } catch (e) {
+    return [];
+  }
+};
+
 // ==================== Quests (admin create) ====================
 export const getAllQuests = async ({ onlyActive = true } = {}) => {
   try {
