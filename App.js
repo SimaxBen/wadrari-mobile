@@ -256,21 +256,27 @@ const MainScreen = ({ userData, onLogout }) => {
   setStories(storyList);
         setLeaderboard(Array.isArray(lb) ? lb : []);
         let baseQuests = Array.isArray(qs) ? qs : [];
-        // Always fetch completions for all quest types
+        // Fetch completions for all quest types
         try {
           if (typeof getUserQuestDailyCompletions === 'function') {
             const comps = await getUserQuestDailyCompletions({ userId: userData.id });
             if (Array.isArray(comps) && comps.length) {
               const compMap = Object.fromEntries(comps.map(c => [c.quest_id, c]));
               baseQuests = baseQuests.map(q => {
-                // Treat 'lifetime' as 'one_time' for display and logic
                 let questType = q.quest_type === 'lifetime' ? 'one_time' : q.quest_type;
                 const c = compMap[q.id];
                 let alreadyCompleted = false;
                 let progress = q.progress ?? 0;
                 if (c) {
                   progress = Math.max(progress, c.completion_count || 0);
-                  alreadyCompleted = progress >= (q.target || 1);
+                }
+                // Completion logic by type
+                if (questType === 'one_time') {
+                  alreadyCompleted = progress >= 1;
+                } else if (questType === 'daily') {
+                  alreadyCompleted = progress >= 1;
+                } else if (questType === 'repeatable') {
+                  alreadyCompleted = false; // always allow
                 }
                 return { ...q, quest_type: questType, progress, alreadyCompleted };
               });
@@ -738,39 +744,48 @@ const MainScreen = ({ userData, onLogout }) => {
                      return aCompleted ? 1 : -1; // completed go last
                   })
                   .map((q) => {
-                  // Determine completion state based on quest_type
-                  const userQuest = quests.find(qq => qq.id === q.id);
-                  const alreadyCompleted = userQuest ? (userQuest.progress >= userQuest.target) : false;
-                  const isRepeatable = q.quest_type === 'repeatable';
-                  const canComplete = !alreadyCompleted || isRepeatable;
-                  return (
-                  <TouchableOpacity key={q.id} style={[styles.questCardCompact, alreadyCompleted && !isRepeatable && styles.questCardCompleted]} onPress={() => setQuestDetail({ ...q, alreadyCompleted, isRepeatable, canComplete })}>
-                    {q.image_url ? (
-                      <Image 
-                        source={{ uri: q.image_url }} 
-                        style={styles.questCardImage}
-                        onError={(e) => {
-                          console.log('Quest image load error:', e.nativeEvent.error);
-                        }}
-                      />
-                    ) : (
-                      <View style={styles.questCardPlaceholder}>
-                        <Text style={styles.questCardPlaceholderText}>🎯</Text>
-                      </View>
-                    )}
-                    <View style={styles.questCardCompactContent}>
-                      <View style={{ flex:1 }}>
-                        <Text style={styles.questCardTitle} numberOfLines={1}>{q.name}</Text>
-                        <Text style={styles.questCardMiniMeta}>🏆 {q.trophy_reward || q.reward || 0} • {q.quest_type || 'type'}</Text>
-                      </View>
-                      <View>
-                        <Text style={[styles.questProgressBadge, alreadyCompleted && !isRepeatable && { backgroundColor:'#2d3a2d', color:'#6fa86f' }]}>
-                          {alreadyCompleted && !isRepeatable ? 'Done' : `${userQuest ? userQuest.progress : 0}/${userQuest ? userQuest.target : (q.target||1)}`}
-                        </Text>
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                )})}
+                    const userQuest = quests.find(qq => qq.id === q.id);
+                    let questType = q.quest_type === 'lifetime' ? 'one_time' : q.quest_type;
+                    let alreadyCompleted = false;
+                    let progress = userQuest ? userQuest.progress : 0;
+                    if (questType === 'one_time') {
+                      alreadyCompleted = progress >= 1;
+                    } else if (questType === 'daily') {
+                      alreadyCompleted = progress >= 1;
+                    } else if (questType === 'repeatable') {
+                      alreadyCompleted = false;
+                    }
+                    const isRepeatable = questType === 'repeatable';
+                    const canComplete = !alreadyCompleted || isRepeatable;
+                    return (
+                      <TouchableOpacity key={q.id} style={[styles.questCardCompact, alreadyCompleted && !isRepeatable && styles.questCardCompleted]} onPress={() => setQuestDetail({ ...q, alreadyCompleted, isRepeatable, canComplete })}>
+                        {q.image_url ? (
+                          <Image 
+                            source={{ uri: q.image_url }} 
+                            style={styles.questCardImage}
+                            onError={(e) => {
+                              console.log('Quest image load error:', e.nativeEvent.error);
+                            }}
+                          />
+                        ) : (
+                          <View style={styles.questCardPlaceholder}>
+                            <Text style={styles.questCardPlaceholderText}>🎯</Text>
+                          </View>
+                        )}
+                        <View style={styles.questCardCompactContent}>
+                          <View style={{ flex:1 }}>
+                            <Text style={styles.questCardTitle} numberOfLines={1}>{q.name}</Text>
+                            <Text style={styles.questCardMiniMeta}>🏆 {q.trophy_reward || q.reward || 0} • {questType || 'type'}</Text>
+                          </View>
+                          <View>
+                            <Text style={[styles.questProgressBadge, alreadyCompleted && !isRepeatable && { backgroundColor:'#2d3a2d', color:'#6fa86f' }]}> 
+                              {alreadyCompleted && !isRepeatable ? 'Done' : (isRepeatable ? `${progress}` : `${progress}/${q.target||1}`)}
+                            </Text>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    )
+                  })}
               </View>
             </View>
           </View>
@@ -778,149 +793,168 @@ const MainScreen = ({ userData, onLogout }) => {
 
         {page === 'Profile' && (
           <View style={styles.section}>
-            {/* Profile Header */}
-            <View style={styles.profileHeader}>
-              <View style={[styles.profileAvatarRow] }>
-                <View style={[styles.userAvatarLarge, { borderWidth:3, borderColor:'#4a90e2', shadowColor:'#4a90e2', shadowOpacity:0.4, shadowRadius:8 }] }>
-                  {(profile?.avatar_url || userData?.avatar_url) ? (
-                    <Image
-                      source={{ uri: profile?.avatar_url || userData?.avatar_url }}
-                      style={styles.userAvatarImgLarge}
-                      onError={(e) => console.log('Profile avatar load error:', e.nativeEvent.error)}
-                    />
-                  ) : (
-                    <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0].toUpperCase()}</Text>
-                  )}
-                </View>
-                <View style={{ flexDirection:'column', gap:8, alignItems:'flex-start' }}>
-                  <TouchableOpacity style={styles.changeAvatarButton} onPress={async () => {
-                    try {
-                      setUpdatingAvatar(true);
-                      const seed = `${userData?.username || 'user'}-${Date.now()}`;
-                      // Dicebear generated PNG avatar URL (no upload needed)
-                      const avatarUrl = `https://api.dicebear.com/7.x/identicon/png?seed=${encodeURIComponent(seed)}&backgroundColor=1a1a2e,4a90e2&radius=50`;
-                      const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl });
-                      if (resp?.success) {
-                        setProfile((p) => p ? { ...p, avatar_url: avatarUrl } : { avatar_url: avatarUrl });
-                        userData.avatar_url = avatarUrl; // optimistic local update
-                        Alert.alert('Profile', 'New avatar generated.');
-                      } else {
-                        Alert.alert('Profile', resp?.error || 'Update failed');
-                      }
-                    } catch(e){
-                      Alert.alert('Avatar', e.message);
-                    } finally { setUpdatingAvatar(false); }
-                  }}>
-                    <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Generating...' : '🎲 Generate Avatar'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.changeAvatarButton,{ backgroundColor:'#2a3245' }]} onPress={async () => {
-                    try {
-                      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                      if (!perm.granted) { Alert.alert('Avatar','Permission denied'); return; }
-                      const img = await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, quality:0.7, base64:true });
-                      if (img.canceled) return;
-                      setUpdatingAvatar(true);
-                      const asset = img.assets[0];
-                      const upload = await uploadImage({ bucket:'profile-avatars', fileUri:asset.uri, base64:asset.base64||null, pathPrefix:`${userData?.id}/` });
-                      if (!upload?.success) throw new Error(upload?.error||'Upload failed');
-                      const newUrl = upload.url;
-                      const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl: newUrl });
-                      if (resp?.success) {
-                        setProfile(p => p ? { ...p, avatar_url:newUrl } : { avatar_url:newUrl });
-                        userData.avatar_url = newUrl;
-                        Alert.alert('Profile','Avatar updated');
-                      } else {
-                        Alert.alert('Profile', resp?.error || 'Update failed');
-                      }
-                    } catch(e){
-                      Alert.alert('Avatar', e.message);
-                    } finally { setUpdatingAvatar(false); }
-                  }}>
-                    <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Uploading...' : '📤 Upload Picture'}</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={{ marginLeft:16, flex:1, justifyContent:'center' }}>
-                  <Text style={[styles.profileUsername, { textAlign:'left', marginTop:4 }]}>{profile?.username || userData?.username}</Text>
-                  <Text style={[styles.profileJoinDate, { textAlign:'left' }]}>Joined {new Date(userData?.created_at || Date.now()).toLocaleDateString()}</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Stats Cards */}
-            <View style={styles.statsContainer}>
-              <View style={styles.statCard}>
-                <Text style={styles.statNumber}>{profile?.trophies ?? userData?.trophies ?? 0}</Text>
-                <Text style={styles.statLabel}>🏆 Trophies</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statNumber}>{profile?.current_streak ?? userData?.current_streak ?? 0}</Text>
-                <Text style={styles.statLabel}>🔥 Streak</Text>
-              </View>
-            </View>
-
-            {/* Daily Quests Section */}
-            <View style={styles.profileSection}>
-              <Text style={styles.profileSectionTitle}>🎯 Active Quests</Text>
-              <View style={styles.questsContainer}>
-                {quests.filter(q => q.progress < q.target).map((q) => (
-                  <View key={q.id} style={styles.dailyQuestCard}>
-                    <View style={styles.questProgress}>
-                      <View style={styles.questProgressBar}>
-                        <View style={[styles.questProgressFill, { width: `${Math.min(100, (q.progress / q.target) * 100)}%` }]} />
-                      </View>
-                      <Text style={styles.questProgressText}>{q.progress}/{q.target}</Text>
-                    </View>
-                    <View style={styles.questInfo}>
-                      <Text style={styles.questTitle}>{q.title || q.name}</Text>
-                      <Text style={styles.questDescription}>{q.description}</Text>
-                      <Text style={styles.questReward}>Reward: {(q.reward || q.trophy_reward || 0)} 🏆</Text>
-                    </View>
+            {/* Only enable scrolling if content overflows */}
+            <View style={{ flexGrow: 1 }}>
+              {/* Profile Header */}
+              <View style={styles.profileHeader}>
+                <View style={[styles.profileAvatarRow] }>
+                  <View style={[styles.userAvatarLarge, { borderWidth:3, borderColor:'#4a90e2', shadowColor:'#4a90e2', shadowOpacity:0.4, shadowRadius:8 }] }>
+                    {(profile?.avatar_url || userData?.avatar_url) ? (
+                      <Image
+                        source={{ uri: profile?.avatar_url || userData?.avatar_url }}
+                        style={styles.userAvatarImgLarge}
+                        onError={(e) => console.log('Profile avatar load error:', e.nativeEvent.error)}
+                      />
+                    ) : (
+                      <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0].toUpperCase()}</Text>
+                    )}
                   </View>
-                ))}
-                {quests.filter(q => q.progress < q.target).length === 0 && (
-                  <Text style={{ color:'#888', fontSize:12 }}>All quests completed 🎉</Text>
-                )}
+                  <View style={{ flexDirection:'column', gap:8, alignItems:'flex-start' }}>
+                    <TouchableOpacity style={styles.changeAvatarButton} onPress={async () => {
+                      try {
+                        setUpdatingAvatar(true);
+                        const seed = `${userData?.username || 'user'}-${Date.now()}`;
+                        // Dicebear generated PNG avatar URL (no upload needed)
+                        const avatarUrl = `https://api.dicebear.com/7.x/identicon/png?seed=${encodeURIComponent(seed)}&backgroundColor=1a1a2e,4a90e2&radius=50`;
+                        const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl });
+                        if (resp?.success) {
+                          setProfile((p) => p ? { ...p, avatar_url: avatarUrl } : { avatar_url: avatarUrl });
+                          userData.avatar_url = avatarUrl; // optimistic local update
+                          Alert.alert('Profile', 'New avatar generated.');
+                        } else {
+                          Alert.alert('Profile', resp?.error || 'Update failed');
+                        }
+                      } catch(e){
+                        Alert.alert('Avatar', e.message);
+                      } finally { setUpdatingAvatar(false); }
+                    }}>
+                      <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Generating...' : '🎲 Generate Avatar'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.changeAvatarButton,{ backgroundColor:'#2a3245' }]} onPress={async () => {
+                      try {
+                        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                        if (!perm.granted) { Alert.alert('Avatar','Permission denied'); return; }
+                        const img = await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, quality:0.7, base64:true });
+                        if (img.canceled) return;
+                        setUpdatingAvatar(true);
+                        const asset = img.assets[0];
+                        const upload = await uploadImage({ bucket:'profile-avatars', fileUri:asset.uri, base64:asset.base64||null, pathPrefix:`${userData?.id}/` });
+                        if (!upload?.success) throw new Error(upload?.error||'Upload failed');
+                        const newUrl = upload.url;
+                        const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl: newUrl });
+                        if (resp?.success) {
+                          setProfile(p => p ? { ...p, avatar_url:newUrl } : { avatar_url:newUrl });
+                          userData.avatar_url = newUrl;
+                          Alert.alert('Profile','Avatar updated');
+                        } else {
+                          Alert.alert('Profile', resp?.error || 'Update failed');
+                        }
+                      } catch(e){
+                        Alert.alert('Avatar', e.message);
+                      } finally { setUpdatingAvatar(false); }
+                    }}>
+                      <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Uploading...' : '📤 Upload Picture'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={{ marginLeft:16, flex:1, justifyContent:'center' }}>
+                    <Text style={[styles.profileUsername, { textAlign:'left', marginTop:4 }]}>{profile?.username || userData?.username}</Text>
+                    <Text style={[styles.profileJoinDate, { textAlign:'left' }]}>Joined {new Date(userData?.created_at || Date.now()).toLocaleDateString()}</Text>
+                  </View>
+                </View>
               </View>
-            </View>
 
-            {/* Badges Section */}
-            {!!badges.length && (
+              {/* Stats Cards */}
+              <View style={styles.statsContainer}>
+                <View style={styles.statCard}>
+                  <Text style={styles.statNumber}>{profile?.trophies ?? userData?.trophies ?? 0}</Text>
+                  <Text style={styles.statLabel}>🏆 Trophies</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statNumber}>{profile?.current_streak ?? userData?.current_streak ?? 0}</Text>
+                  <Text style={styles.statLabel}>🔥 Streak</Text>
+                </View>
+              </View>
+
+              {/* Daily Quests Section */}
               <View style={styles.profileSection}>
-                <Text style={styles.profileSectionTitle}>🏅 Achievements</Text>
-                <View style={styles.badgesContainer}>
-                  {badges.map((b) => (
-                    <View key={b.id} style={styles.badgeItem}>
-                      <Text style={styles.badgeText}>{b.badge_name || b.badge_type}</Text>
+                <Text style={styles.profileSectionTitle}>🎯 Active Quests</Text>
+                <View style={styles.questsContainer}>
+                  {quests.filter(q => {
+                    // For daily quests, show if not completed today
+                    if (q.quest_type === 'daily') return !q.alreadyCompleted;
+                    // For one_time, show if not completed ever
+                    if (q.quest_type === 'one_time') return !q.alreadyCompleted;
+                    // For repeatable, always show
+                    if (q.quest_type === 'repeatable') return true;
+                    return false;
+                  }).map((q) => (
+                    <View key={q.id} style={styles.dailyQuestCard}>
+                      <View style={styles.questProgress}>
+                        <View style={styles.questProgressBar}>
+                          <View style={[styles.questProgressFill, { width: `${Math.min(100, (q.progress / (q.target || 1)) * 100)}%` }]} />
+                        </View>
+                        <Text style={styles.questProgressText}>{q.progress}/{q.target || 1}</Text>
+                      </View>
+                      <View style={styles.questInfo}>
+                        <Text style={styles.questTitle}>{q.title || q.name}</Text>
+                        <Text style={styles.questDescription}>{q.description}</Text>
+                        <Text style={styles.questReward}>Reward: {(q.reward || q.trophy_reward || 0)} 🏆</Text>
+                      </View>
                     </View>
                   ))}
+                  {quests.filter(q => {
+                    if (q.quest_type === 'daily') return !q.alreadyCompleted;
+                    if (q.quest_type === 'one_time') return !q.alreadyCompleted;
+                    if (q.quest_type === 'repeatable') return true;
+                    return false;
+                  }).length === 0 && (
+                    <Text style={{ color:'#888', fontSize:12 }}>All quests completed 🎉</Text>
+                  )}
                 </View>
               </View>
-            )}
 
-            {/* Quest Completion Modal */}
-            {questModal.visible && questModal.quest && (
-              <View style={styles.modalOverlay}>
-                <View style={styles.modalContent}>
-                  <Text style={styles.modalTitle}>Complete Quest?</Text>
-                  <Text style={styles.modalQuestName}>{questModal.quest.title}</Text>
-                  <Text style={styles.modalQuestDescription}>{questModal.quest.description}</Text>
-                  <Text style={styles.modalReward}>Reward: {questModal.quest.reward} 🏆</Text>
-                  <View style={styles.modalButtons}>
-                    <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={confirmCompleteQuest}>
-                      <Text style={styles.modalButtonText}>Confirm</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setQuestModal({ visible: false, quest: null })}>
-                      <Text style={styles.modalButtonText}>Cancel</Text>
-                    </TouchableOpacity>
+              {/* Badges Section */}
+              {!!badges.length && (
+                <View style={styles.profileSection}>
+                  <Text style={styles.profileSectionTitle}>🏅 Achievements</Text>
+                  <View style={styles.badgesContainer}>
+                    {badges.map((b) => (
+                      <View key={b.id} style={styles.badgeItem}>
+                        <Text style={styles.badgeText}>{b.badge_name || b.badge_type}</Text>
+                      </View>
+                    ))}
                   </View>
                 </View>
-              </View>
-            )}
+              )}
 
-            {/* Logout Button */}
-            <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
-              <Text style={styles.logoutButtonText}>🚪 Sign Out</Text>
-            </TouchableOpacity>
+              {/* Quest Completion Modal */}
+              {questModal.visible && questModal.quest && (
+                <View style={styles.modalOverlay}>
+                  <View style={styles.modalContent}>
+                    <Text style={styles.modalTitle}>Complete Quest?</Text>
+                    {questModal.quest.image_url ? (
+                      <Image source={{ uri: questModal.quest.image_url }} style={styles.modalQuestImage} />
+                    ) : null}
+                    <Text style={styles.modalQuestName}>{questModal.quest.title}</Text>
+                    <Text style={styles.modalQuestDescription}>{questModal.quest.description}</Text>
+                    <Text style={styles.modalReward}>Reward: {questModal.quest.reward} 🏆</Text>
+                    <View style={styles.modalButtons}>
+                      <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={confirmCompleteQuest}>
+                        <Text style={styles.modalButtonText}>Confirm</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setQuestModal({ visible: false, quest: null })}>
+                        <Text style={styles.modalButtonText}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* Logout Button */}
+              <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
+                <Text style={styles.logoutButtonText}>🚪 Sign Out</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
   </ScrollView>
@@ -1045,7 +1079,15 @@ const MainScreen = ({ userData, onLogout }) => {
                 style={{ minHeight:100, backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:16, borderWidth:1, borderColor:'#2a3245', marginBottom:16 }}
               />
               {storyImageUri ? (
-                <Image source={{ uri: storyImageUri }} style={{ width:'100%', height:200, borderRadius:16, marginBottom:16 }} />
+                <View style={{ position:'relative', width:'100%', height:200, marginBottom:16 }}>
+                  <Image source={{ uri: storyImageUri }} style={{ width:'100%', height:200, borderRadius:16 }} />
+                  <TouchableOpacity
+                    style={{ position:'absolute', top:8, right:8, backgroundColor:'rgba(0,0,0,0.6)', borderRadius:16, padding:6, zIndex:2 }}
+                    onPress={() => { setStoryImageUri(''); setStoryImageBase64(null); }}
+                  >
+                    <Text style={{ color:'#fff', fontSize:18, fontWeight:'bold' }}>✖</Text>
+                  </TouchableOpacity>
+                </View>
               ) : (
                 <TouchableOpacity onPress={async () => {
                   try {
@@ -1116,7 +1158,15 @@ const MainScreen = ({ userData, onLogout }) => {
                 })}
               </View>
               {questImageUri ? (
-                <Image source={{ uri: questImageUri }} style={{ width:'100%', height:160, borderRadius:12, marginBottom:12 }} />
+                <View style={{ position:'relative', width:'100%', height:160, marginBottom:12 }}>
+                  <Image source={{ uri: questImageUri }} style={{ width:'100%', height:160, borderRadius:12 }} />
+                  <TouchableOpacity
+                    style={{ position:'absolute', top:8, right:8, backgroundColor:'rgba(0,0,0,0.6)', borderRadius:16, padding:6, zIndex:2 }}
+                    onPress={() => { setQuestImageUri(''); setQuestImageBase64(null); }}
+                  >
+                    <Text style={{ color:'#fff', fontSize:18, fontWeight:'bold' }}>✖</Text>
+                  </TouchableOpacity>
+                </View>
               ) : (
                 <TouchableOpacity onPress={async () => {
                   try { const perm = await ImagePicker.requestMediaLibraryPermissionsAsync(); if(!perm.granted){Alert.alert('Image','Denied'); return;} const img= await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, quality:0.7, base64:true }); if(!img.canceled){ const asset=img.assets[0]; setQuestImageUri(asset.uri); setQuestImageBase64(asset.base64||null);} } catch(e){ Alert.alert('Image','Pick failed'); }

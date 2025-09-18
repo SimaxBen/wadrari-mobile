@@ -4,7 +4,7 @@
   "slug": "wadrari-mobile",
       "version": "1",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/5927092260921526942.jpg",
     "userInterfaceStyle": "automatic", 
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -20,7 +20,7 @@
     },
   "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/5927092260921526942.jpg",
         "backgroundColor": "#1a1a2e"
       },
   "package": "com.wadrari.mobile",
@@ -34,7 +34,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
+          "icon": "./assets/5935779424983173686.jpg",
           "color": "#4a90e2",
           "sounds": []
         }
