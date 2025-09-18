@@ -1034,56 +1034,78 @@ const MainScreen = ({ userData, onLogout }) => {
         <View style={styles.questDetailOverlay}>
           <View style={styles.questDetailCard}>
             <Text style={styles.questDetailTitle}>{questDetail?.name}</Text>
-            <Text style={styles.questDetailMeta}>Type: {questDetail?.quest_type || 'unknown'} • 🏆 {questDetail?.trophy_reward || questDetail?.reward || 0}</Text>
+            <Text style={styles.questDetailMeta}>
+              Type: {questDetail?.quest_type || 'unknown'} • 🏆 {questDetail?.trophy_reward || questDetail?.reward || 0}
+            </Text>
+            {questDetail?.image_url ? (
+              <Image
+                source={{ uri: questDetail.image_url }}
+                style={{ width: 120, height: 120, borderRadius: 12, alignSelf: 'center', marginBottom: 12 }}
+              />
+            ) : null}
             <ScrollView style={styles.questDetailScroll}>
               <Text style={styles.questDetailDescription}>{questDetail?.description || 'No description.'}</Text>
             </ScrollView>
             <View style={styles.questDetailButtons}>
-              {!!(questDetail && (questDetail.canComplete)) && (
-                <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={async () => {
-                  try {
-                    const reward = questDetail.trophy_reward || questDetail.reward || 0;
-                    if (!questDetail?.id) return;
-                    const res = await completeQuest({ userId: userData?.id, questId: questDetail.id, reward });
-                    if (res?.success) {
-                      setQuests(prev => {
-                        const exists = questDetail?.id ? prev.find(p => p.id === questDetail.id) : null;
-                        if (exists) {
-                          if (!questDetail?.id) return prev;
-                          return prev.map(p => (p.id === questDetail.id ? { ...p, progress: p.target || exists.target } : p));
-                        }
-                        return questDetail?.id ? [...prev, { id: questDetail.id, progress: (questDetail.target || 1), target: (questDetail.target || 1), reward }] : prev;
-                      });
-                      if (reward) {
-                        userData.trophies = (userData.trophies || 0) + reward;
-                        setLeaderboard(prev => prev.map(l => l.id === userData.id ? { ...l, trophies: (l.trophies||0)+reward } : l));
+              {!!(questDetail && questDetail.canComplete) && !questDetail.alreadyCompleted && (
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonConfirm]}
+                  onPress={async () => {
+                    try {
+                      const reward = questDetail.trophy_reward || questDetail.reward || 0;
+                      if (!questDetail?.id) return;
+                      const res = await completeQuest({ userId: userData?.id, questId: questDetail.id, reward });
+                      if (res?.success) {
+                        setQuests(prev => {
+                          const exists = questDetail?.id ? prev.find(p => p.id === questDetail.id) : null;
+                          if (exists) {
+                            if (!questDetail?.id) return prev;
+                            // For repeatable quests, increment progress; for others, set to target
+                            if (questDetail.quest_type === 'repeatable') {
+                              return prev.map(p => (p.id === questDetail.id ? { ...p, progress: (p.progress || 0) + 1 } : p));
+                            }
+                            return prev.map(p => (p.id === questDetail.id ? { ...p, progress: p.target || exists.target } : p));
+                          }
+                          return questDetail?.id
+                            ? [...prev, { id: questDetail.id, progress: questDetail.target || 1, target: questDetail.target || 1, reward }]
+                            : prev;
+                        });
+                        // Do NOT update userData.trophies or leaderboard here
+                        setQuestDetail(null);
+                        Alert.alert('Quest', `Completed! +${reward} 🏆`);
+                      } else if (res?.error) {
+                        Alert.alert('Quest', res.error);
                       }
-                      setQuestDetail(null);
-                      Alert.alert('Quest', `Completed! +${reward} 🏆`);
-                    } else if (res?.error) {
-                      Alert.alert('Quest', res.error);
+                    } catch (e) {
+                      Alert.alert('Quest', e.message);
                     }
-                  } catch(e){
-                    Alert.alert('Quest', e.message);
-                  }
-                }}>
+                  }}
+                >
                   <Text style={styles.modalButtonText}>Complete</Text>
                 </TouchableOpacity>
               )}
               {userData?.username === 'SIMAX' && !!questDetail && (
-                <TouchableOpacity style={[styles.modalButton, { backgroundColor:'#b33939' }]} onPress={async () => {
-                  if (!deleteQuest) { Alert.alert('Admin','Delete not implemented'); return; }
-                  try {
-                    if (!questDetail?.id) return;
-                    const res = await deleteQuest({ questId: questDetail.id });
-                    if (res?.success) {
-                      setAllQuests(prev => questDetail?.id ? prev.filter(q => q.id !== questDetail.id) : prev);
-                      setQuestDetail(null);
-                    } else {
-                      Alert.alert('Delete', res?.error || 'Failed');
+                <TouchableOpacity
+                  style={[styles.modalButton, { backgroundColor: '#b33939' }]}
+                  onPress={async () => {
+                    if (!deleteQuest) {
+                      Alert.alert('Admin', 'Delete not implemented');
+                      return;
                     }
-                  } catch(e){ Alert.alert('Delete', e.message); }
-                }}>
+                    try {
+                      if (!questDetail?.id) return;
+                      const res = await deleteQuest({ questId: questDetail.id });
+                      if (res?.success) {
+                        setAllQuests(prev => (questDetail?.id ? prev.filter(q => q.id !== questDetail.id) : prev));
+                        setQuestDetail(null);
+                      } else {
+                        Alert.alert('Delete', res?.error || 'Failed');
+                      }
+                    } catch (e) {
+                      Alert.alert('Delete', e.message);
+                    }
+                  }}
+                >
                   <Text style={styles.modalButtonText}>Delete</Text>
                 </TouchableOpacity>
               )}
