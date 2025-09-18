@@ -225,6 +225,9 @@ const MainScreen = ({ userData, onLogout }) => {
       if (!upload?.success) {
         const error = upload?.error || 'Unknown error. Please check your network and try again.';
         console.error(`${bucket} upload error:`, error);
+        if (/network error contacting storage|RLS/i.test(error)) {
+          Alert.alert('Image Upload', 'Network error contacting storage. Please check your connection and login status. If this persists, contact support.');
+        }
         throw new Error(error);
       }
       
@@ -253,20 +256,23 @@ const MainScreen = ({ userData, onLogout }) => {
   setStories(storyList);
         setLeaderboard(Array.isArray(lb) ? lb : []);
         let baseQuests = Array.isArray(qs) ? qs : [];
-        // fetch completion counts (daily) and merge progress if quest ids match
+        // Always fetch completions for all quest types
         try {
           if (typeof getUserQuestDailyCompletions === 'function') {
             const comps = await getUserQuestDailyCompletions({ userId: userData.id });
             if (Array.isArray(comps) && comps.length) {
               const compMap = Object.fromEntries(comps.map(c => [c.quest_id, c]));
               baseQuests = baseQuests.map(q => {
+                // Treat 'lifetime' as 'one_time' for display and logic
+                let questType = q.quest_type === 'lifetime' ? 'one_time' : q.quest_type;
                 const c = compMap[q.id];
+                let alreadyCompleted = false;
+                let progress = q.progress ?? 0;
                 if (c) {
-                  // ensure progress reflects completion_count if greater
-                  const progress = Math.max(q.progress ?? 0, c.completion_count || 0);
-                  return { ...q, progress };
+                  progress = Math.max(progress, c.completion_count || 0);
+                  alreadyCompleted = progress >= (q.target || 1);
                 }
-                return q;
+                return { ...q, quest_type: questType, progress, alreadyCompleted };
               });
             }
           }
@@ -786,51 +792,53 @@ const MainScreen = ({ userData, onLogout }) => {
                     <Text style={styles.userAvatarTextLarge}>{(userData?.username || 'U')[0].toUpperCase()}</Text>
                   )}
                 </View>
-                <TouchableOpacity style={styles.changeAvatarButton} onPress={async () => {
-                  try {
-                    setUpdatingAvatar(true);
-                    const seed = `${userData?.username || 'user'}-${Date.now()}`;
-                    // Dicebear generated PNG avatar URL (no upload needed)
-                    const avatarUrl = `https://api.dicebear.com/7.x/identicon/png?seed=${encodeURIComponent(seed)}&backgroundColor=1a1a2e,4a90e2&radius=50`;
-                    const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl });
-                    if (resp?.success) {
-                      setProfile((p) => p ? { ...p, avatar_url: avatarUrl } : { avatar_url: avatarUrl });
-                      userData.avatar_url = avatarUrl; // optimistic local update
-                      Alert.alert('Profile', 'New avatar generated.');
-                    } else {
-                      Alert.alert('Profile', resp?.error || 'Update failed');
-                    }
-                  } catch(e){
-                    Alert.alert('Avatar', e.message);
-                  } finally { setUpdatingAvatar(false); }
-                }}>
-                  <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Generating...' : '🎲 Generate Avatar'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.changeAvatarButton,{ marginTop:8, backgroundColor:'#2a3245' }]} onPress={async () => {
-                  try {
-                    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                    if (!perm.granted) { Alert.alert('Avatar','Permission denied'); return; }
-                    const img = await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, quality:0.7, base64:true });
-                    if (img.canceled) return;
-                    setUpdatingAvatar(true);
-                    const asset = img.assets[0];
-                    const upload = await uploadImage({ bucket:'profile-avatars', fileUri:asset.uri, base64:asset.base64||null, pathPrefix:`${userData?.id}/` });
-                    if (!upload?.success) throw new Error(upload?.error||'Upload failed');
-                    const newUrl = upload.url;
-                    const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl: newUrl });
-                    if (resp?.success) {
-                      setProfile(p => p ? { ...p, avatar_url:newUrl } : { avatar_url:newUrl });
-                      userData.avatar_url = newUrl;
-                      Alert.alert('Profile','Avatar updated');
-                    } else {
-                      Alert.alert('Profile', resp?.error || 'Update failed');
-                    }
-                  } catch(e){
-                    Alert.alert('Avatar', e.message);
-                  } finally { setUpdatingAvatar(false); }
-                }}>
-                  <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Uploading...' : '📤 Upload Picture'}</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection:'column', gap:8, alignItems:'flex-start' }}>
+                  <TouchableOpacity style={styles.changeAvatarButton} onPress={async () => {
+                    try {
+                      setUpdatingAvatar(true);
+                      const seed = `${userData?.username || 'user'}-${Date.now()}`;
+                      // Dicebear generated PNG avatar URL (no upload needed)
+                      const avatarUrl = `https://api.dicebear.com/7.x/identicon/png?seed=${encodeURIComponent(seed)}&backgroundColor=1a1a2e,4a90e2&radius=50`;
+                      const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl });
+                      if (resp?.success) {
+                        setProfile((p) => p ? { ...p, avatar_url: avatarUrl } : { avatar_url: avatarUrl });
+                        userData.avatar_url = avatarUrl; // optimistic local update
+                        Alert.alert('Profile', 'New avatar generated.');
+                      } else {
+                        Alert.alert('Profile', resp?.error || 'Update failed');
+                      }
+                    } catch(e){
+                      Alert.alert('Avatar', e.message);
+                    } finally { setUpdatingAvatar(false); }
+                  }}>
+                    <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Generating...' : '🎲 Generate Avatar'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.changeAvatarButton,{ backgroundColor:'#2a3245' }]} onPress={async () => {
+                    try {
+                      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                      if (!perm.granted) { Alert.alert('Avatar','Permission denied'); return; }
+                      const img = await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, quality:0.7, base64:true });
+                      if (img.canceled) return;
+                      setUpdatingAvatar(true);
+                      const asset = img.assets[0];
+                      const upload = await uploadImage({ bucket:'profile-avatars', fileUri:asset.uri, base64:asset.base64||null, pathPrefix:`${userData?.id}/` });
+                      if (!upload?.success) throw new Error(upload?.error||'Upload failed');
+                      const newUrl = upload.url;
+                      const resp = await updateUserAvatar({ userId: userData?.id, avatarUrl: newUrl });
+                      if (resp?.success) {
+                        setProfile(p => p ? { ...p, avatar_url:newUrl } : { avatar_url:newUrl });
+                        userData.avatar_url = newUrl;
+                        Alert.alert('Profile','Avatar updated');
+                      } else {
+                        Alert.alert('Profile', resp?.error || 'Update failed');
+                      }
+                    } catch(e){
+                      Alert.alert('Avatar', e.message);
+                    } finally { setUpdatingAvatar(false); }
+                  }}>
+                    <Text style={styles.changeAvatarText}>{updatingAvatar ? '⌛ Uploading...' : '📤 Upload Picture'}</Text>
+                  </TouchableOpacity>
+                </View>
                 <View style={{ marginLeft:16, flex:1, justifyContent:'center' }}>
                   <Text style={[styles.profileUsername, { textAlign:'left', marginTop:4 }]}>{profile?.username || userData?.username}</Text>
                   <Text style={[styles.profileJoinDate, { textAlign:'left' }]}>Joined {new Date(userData?.created_at || Date.now()).toLocaleDateString()}</Text>
@@ -1094,8 +1102,8 @@ const MainScreen = ({ userData, onLogout }) => {
               <TextInput placeholder="Reward (trophies)" placeholderTextColor="#666" value={questForm.reward} onChangeText={t=> setQuestForm(f=>({...f,reward:t}))} keyboardType="numeric" style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', marginBottom:12 }} />
               <TextInput placeholder="Target (default 1)" placeholderTextColor="#666" value={questForm.target||''} onChangeText={t=> setQuestForm(f=>({...f,target:t}))} keyboardType="numeric" style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', marginBottom:12 }} />
               <View style={{ flexDirection:'row', marginBottom:16, gap:8 }}>
-                {['daily','repeatable','lifetime'].map(t => {
-                  const selected = questForm.type === t;
+                {['daily','repeatable','one_time'].map(t => {
+                  const selected = questForm.type === t || (t === 'one_time' && questForm.type === 'lifetime');
                   return (
                     <TouchableOpacity
                       key={t}
