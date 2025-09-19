@@ -210,6 +210,7 @@ const MainScreen = ({ userData, onLogout }) => {
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [questDetail, setQuestDetail] = useState(null); // selected quest for detail modal
   const [groupEdit, setGroupEdit] = useState({ visible:false, name:'', imageUri:'', imageBase64:null });
+  const [sendingLike, setSendingLike] = useState(false); // Prevent duplicate likes
 
   // Standardized image upload function using group image logic
   const handleImageUpload = async ({ bucket, fileUri, base64, pathPrefix, mimeType = 'image/jpeg' }) => {
@@ -280,17 +281,13 @@ const MainScreen = ({ userData, onLogout }) => {
               let alreadyCompleted = false;
               let progress = q.progress ?? 0;
               if (questType === 'repeatable') {
-                progress = totalC;
+                progress = totalC; // Allow repeatable quests to count > 1
               } else if (dailyC) {
                 progress = dailyC.completion_count || 0;
               }
-              // Completion logic by type, using user_quest_completions for all types
-              if (questType === 'one_time') {
+              if (questType === 'one_time' || questType === 'daily') {
                 alreadyCompleted = progress >= (q.target || 1);
-              } else if (questType === 'daily') {
-                alreadyCompleted = progress >= (q.target || 1);
-              } else if (questType === 'repeatable') {
-                alreadyCompleted = false; // always allow, but show count
+                if (alreadyCompleted) autoCompleted.current.add(q.id);
               }
               return { ...q, quest_type: questType, progress, alreadyCompleted };
             });
@@ -390,6 +387,7 @@ const MainScreen = ({ userData, onLogout }) => {
   }, [page]);
 
   const handleSend = async () => {
+    // Ensure message sending is synchronous for UI
     const text = (newMessage || '').trim();
     if (!text) return;
     setNewMessage('');
@@ -402,19 +400,21 @@ const MainScreen = ({ userData, onLogout }) => {
       profiles: { username: userData?.username }
     };
     setMessages((prev) => [...prev, optimistic]);
-    try {
-      const res = await sendMessage({ userId: userData?.id, content: text, chatId: activeChat?.id || null });
-      console.log('SendMessage response:', res);
-      if (!res?.success || !res?.data) {
+
+    // Send message without blocking UI
+    sendMessage({ userId: userData?.id, content: text, chatId: activeChat?.id || null })
+      .then((res) => {
+        console.log('SendMessage response:', res);
+        if (!res?.success || !res?.data) {
+          setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+        } else {
+          setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? res.data : m)));
+        }
+      })
+      .catch((e) => {
+        console.log('SendMessage error:', e);
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-        try { await updateStreakOnActivity(userData?.id); } catch {}
-      } else {
-        setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? res.data : m)));
-      }
-    } catch (e) {
-      console.log('SendMessage error:', e);
-      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-    }
+      });
   };
 
   const handleCreateChat = async (imageUrl = null) => {
@@ -456,62 +456,50 @@ const MainScreen = ({ userData, onLogout }) => {
     }
   };
 
-  const handleCompleteQuest = async (q) => {
-    setQuestModal({ visible: true, quest: q });
-  };
+  // Add debouncing to prevent multiple rapid clicks
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const confirmCompleteQuest = async () => {
-    const q = questModal.quest;
-    if (!q) return;
+  const handleCompleteQuest = async (q) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       const reward = q.reward || q.trophy_reward || 0;
-      const res = await completeQuest({ userId: userData?.id, questId: q.id, reward: reward });
-      console.log('CompleteQuest response:', res);
+      const res = await completeQuest({ userId: userData?.id, questId: q.id, reward });
       if (res?.success) {
         setQuests((prev) => prev.map((item) => item.id === q.id ? { ...item, progress: item.target } : item));
-        setQuestModal({ visible: false, quest: null });
         Alert.alert('Quest Completed', `You earned ${reward} trophies!`);
-        
-        // Refresh user data and quests for real-time updates
-        try {
-          const [updatedQuests, updatedLeaderboard] = await Promise.all([
-            getQuestsForUser(userData?.id),
-            getLeaderboard({ limit: 20 })
-          ]);
-          setQuests(Array.isArray(updatedQuests) ? updatedQuests : []);
-          setLeaderboard(Array.isArray(updatedLeaderboard) ? updatedLeaderboard : []);
-        } catch (_) {}
-      } else if (res?.error) {
-        const msg = /permission|denied|rls|network|fail/i.test(res.error) ? 'Quest completion failed: ' + res.error : res.error;
-        setQuestModal({ visible: false, quest: null });
-        Alert.alert('Quest', msg);
+      } else {
+        Alert.alert('Error', res?.error || 'Failed to complete quest.');
       }
     } catch (e) {
-      setQuestModal({ visible: false, quest: null });
-      Alert.alert('Quest', 'Error: ' + e.message);
+      Alert.alert('Error', e.message || 'An unexpected error occurred.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const toggleLike = async (storyId) => {
-    if (!storyId || !userData?.id) return;
+    if (!storyId || !userData?.id || sendingLike) return;
+    setSendingLike(true);
     const liked = myLikedStories.includes(storyId);
-    if (liked) {
-      const res = await unlikeStory({ storyId, userId: userData.id });
-      if (res?.success) {
-        setMyLikedStories((prev) => prev.filter((id) => id !== storyId));
-        setStoryLikes((prev) => ({ ...prev, [storyId]: Math.max(0, (prev[storyId] || 0) - 1) }));
-      }
-    } else {
-      const res = await likeStory({ storyId, userId: userData.id });
-      if (res.success) {
-        // Notify story owner if not self
-        if (storyOwnerId && storyOwnerId !== userData.id) {
-          const owner = users.find(u => u.id === storyOwnerId);
-          await notifyStoryLike(userData.username, storyTitle || '');
+    try {
+      if (liked) {
+        const res = await unlikeStory({ storyId, userId: userData.id });
+        if (res?.success) {
+          setMyLikedStories((prev) => prev.filter((id) => id !== storyId));
+          setStoryLikes((prev) => ({ ...prev, [storyId]: Math.max(0, (prev[storyId] || 0) - 1) }));
         }
-        setMyLikedStories((prev) => [...prev, storyId]);
-        setStoryLikes((prev) => ({ ...prev, [storyId]: (prev[storyId] || 0) + 1 }));
+      } else {
+        const res = await likeStory({ storyId, userId: userData.id });
+        if (res?.success) {
+          setMyLikedStories((prev) => [...prev, storyId]);
+          setStoryLikes((prev) => ({ ...prev, [storyId]: (prev[storyId] || 0) + 1 }));
+        }
       }
+    } catch (e) {
+      console.error('Toggle like error:', e);
+    } finally {
+      setSendingLike(false);
     }
   };
 
@@ -1274,7 +1262,7 @@ const MainScreen = ({ userData, onLogout }) => {
             <Text style={styles.questDetailTitle}>New Group</Text>
             <TextInput value={newChatName} onChangeText={setNewChatName} placeholder="Group Name" placeholderTextColor="#666" style={{ backgroundColor:'#1f2535', color:'#fff', padding:12, borderRadius:12, borderWidth:1, borderColor:'#2a3245', marginBottom:16 }} />
             {groupImageUri ? (
-              <Image source={{ uri: groupImageUri }} style={{ width:120, height:120, borderRadius:60, alignSelf:'center', marginBottom:16 }} />
+              <Image source={{ uri: groupImageUri }} style={{ width:120, height:120, borderRadius: 60, alignSelf:'center', marginBottom:16 }} />
             ) : (
               <TouchableOpacity onPress={async () => {
                 try { const perm = await ImagePicker.requestMediaLibraryPermissionsAsync(); if(!perm.granted){Alert.alert('Image','Denied'); return;} const img= await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, quality:0.7, base64:true }); if(!img.canceled){ const asset=img.assets[0]; setGroupImageUri(asset.uri); setGroupImageBase64(asset.base64||null);} } catch(e){ Alert.alert('Image','Pick failed'); }
@@ -1439,7 +1427,7 @@ const MainScreen = ({ userData, onLogout }) => {
                     onChangeText={setNewCommentText}
                     placeholder="Write a comment..."
                     placeholderTextColor="#666"
-                    style={{ flex:1, backgroundColor:'#2a3245', color:'#fff', paddingHorizontal:12, paddingVertical:10, borderRadius:20, fontSize:13 }}
+                    style={{ flex:1, backgroundColor:'#2a2f45', color:'#fff', paddingHorizontal:12, paddingVertical:10, borderRadius:20, fontSize:13 }}
                   />
                   <TouchableOpacity
                     onPress={() => storyViewer?.id && sendComment(storyViewer.id)}
