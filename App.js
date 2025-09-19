@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, Stat
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
 import { configureNotifications, notifyNewMessage, notifyStoryPosted, notifyStoryLike, notifyStoryComment } from './src/services/notifications';
-import { 
+import {
   loginWithUsername,
   getChats,
   getMessages,
@@ -27,6 +27,7 @@ import {
   getStoryComments,
   addStoryComment,
   updateUserAvatar,
+  updateStreakOnActivity,
   deleteQuest,
   createQuest,
   updateChat,
@@ -402,6 +403,8 @@ const MainScreen = ({ userData, onLogout }) => {
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       } else {
         setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? res.data : m)));
+        // Update streak on successful message send (best-effort)
+        try { if (typeof updateStreakOnActivity === 'function') updateStreakOnActivity(userData?.id); } catch(_) {}
       }
     } catch (e) {
       console.log('SendMessage error:', e);
@@ -460,9 +463,14 @@ const MainScreen = ({ userData, onLogout }) => {
       const res = await completeQuest({ userId: userData?.id, questId: q.id, reward: reward });
       console.log('CompleteQuest response:', res);
       if (res?.success) {
-        setQuests((prev) => prev.map((item) => item.id === q.id ? { ...item, progress: item.target } : item));
+        if (res?.skipped) {
+          // server indicates this was already completed or not allowed
+          Alert.alert('Quest', 'This quest cannot be completed at the moment.');
+        } else {
+          setQuests((prev) => prev.map((item) => item.id === q.id ? { ...item, progress: item.target } : item));
+          Alert.alert('Quest Completed', `You earned ${reward} trophies!`);
+        }
         setQuestModal({ visible: false, quest: null });
-        Alert.alert('Quest Completed', `You earned ${reward} trophies!`);
         
         // Refresh user data and quests for real-time updates
         try {
@@ -496,11 +504,7 @@ const MainScreen = ({ userData, onLogout }) => {
     } else {
       const res = await likeStory({ storyId, userId: userData.id });
       if (res.success) {
-        // Notify story owner if not self
-        if (storyOwnerId && storyOwnerId !== userData.id) {
-          const owner = users.find(u => u.id === storyOwnerId);
-          await notifyStoryLike(userData.username, storyTitle || '');
-        }
+        // update local like state
         setMyLikedStories((prev) => [...prev, storyId]);
         setStoryLikes((prev) => ({ ...prev, [storyId]: (prev[storyId] || 0) + 1 }));
       }
@@ -519,11 +523,7 @@ const MainScreen = ({ userData, onLogout }) => {
     if (!text || !userData?.id || !storyId) return;
     const res = await addStoryComment({ storyId, userId: userData.id, content: text });
     if (res.success) {
-      // Notify story owner if not self
-      if (storyOwnerId && storyOwnerId !== userData.id) {
-        const owner = users.find(u => u.id === storyOwnerId);
-        await notifyStoryComment(userData.username, storyTitle || '', text);
-      }
+      // update local comments state
       const enriched = { ...res.data, username: userData?.username || null };
       setStoryComments((prev) => ({ ...prev, [storyId]: [...(prev[storyId] || []), enriched] }));
       setNewCommentText('');
@@ -533,7 +533,7 @@ const MainScreen = ({ userData, onLogout }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
-  <ScrollView style={[styles.mainContainer, { marginBottom: page === 'Chat' ? 130 : 70 }]} contentContainerStyle={{ paddingBottom:140 }}>
+  <ScrollView style={[styles.mainContainer, { marginBottom: page === 'Chat' ? 130 : 70 }]} contentContainerStyle={{ paddingBottom:140, flex:1 }} scrollEnabled={page !== 'Chat'}>
         {/* Page header where relevant */}
 
         {page === 'Chat' && (
@@ -611,24 +611,25 @@ const MainScreen = ({ userData, onLogout }) => {
                   </TouchableOpacity>
                 </View>
                 
-                <FlatList
-                  data={messages.filter(m => activeChat?.id ? m.chat_id === activeChat.id : true)}
-                  keyExtractor={(item) => item.id.toString()}
-                  style={styles.whatsappMessageArea}
-                  ref={messageScrollRef}
-                  onContentSizeChange={() => { if (messageScrollRef.current) messageScrollRef.current.scrollToEnd({ animated: true }); }}
-                  renderItem={({ item: m }) => (
-                    <View style={[styles.whatsappMessage, m.sender_id === userData?.id ? styles.whatsappMessageSent : styles.whatsappMessageReceived]}>
-                      {m.sender_id !== userData?.id && (
-                        <Text style={styles.whatsappMessageSender}>{m.username || 'User'}</Text>
-                      )}
-                      <Text style={styles.whatsappMessageText}>{m.message}</Text>
-                      <Text style={styles.whatsappMessageTime}>
-                        {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                    </View>
-                  )}
-                />
+                <View style={{ flex:1 }}>
+                  <ScrollView
+                    style={styles.whatsappMessageArea}
+                    ref={messageScrollRef}
+                    onContentSizeChange={() => { try { if (messageScrollRef.current) messageScrollRef.current.scrollToEnd({ animated: true }); } catch(_) {} }}
+                  >
+                    {(messages.filter(m => activeChat?.id ? m.chat_id === activeChat.id : true) || []).map((m) => (
+                      <View key={m.id} style={[styles.whatsappMessage, m.user_id === userData?.id ? styles.whatsappMessageSent : styles.whatsappMessageReceived]}>
+                        {m.user_id !== userData?.id && (
+                          <Text style={styles.whatsappMessageSender}>{m.username || 'User'}</Text>
+                        )}
+                        <Text style={styles.whatsappMessageText}>{m.message}</Text>
+                        <Text style={styles.whatsappMessageTime}>
+                          {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
               </View>
             )}
           </View>
@@ -965,9 +966,9 @@ const MainScreen = ({ userData, onLogout }) => {
                     {questModal.quest.image_url ? (
                       <Image source={{ uri: questModal.quest.image_url }} style={styles.modalQuestImage} />
                     ) : null}
-                    <Text style={styles.modalQuestName}>{questModal.quest.title}</Text>
+                    <Text style={styles.modalQuestName}>{questModal.quest.name || questModal.quest.title}</Text>
                     <Text style={styles.modalQuestDescription}>{questModal.quest.description}</Text>
-                    <Text style={styles.modalReward}>Reward: {questModal.quest.reward} 🏆</Text>
+                    <Text style={styles.modalReward}>Reward: {questModal.quest.trophy_reward || questModal.quest.reward || 0} 🏆</Text>
                     <View style={styles.modalButtons}>
                       <TouchableOpacity style={[styles.modalButton, styles.modalButtonConfirm]} onPress={confirmCompleteQuest}>
                         <Text style={styles.modalButtonText}>Confirm</Text>
@@ -1457,6 +1458,9 @@ const App = () => {
       try { SecureStore.setItemAsync('user', JSON.stringify(loginData)); } catch {}
       // expose current user id globally so realtime subscribers can filter self notifications
       try { globalThis.__currentUserId = loginData.id; } catch {}
+      // Best-effort: update streak and refresh profile data
+      try { if (typeof updateStreakOnActivity === 'function') updateStreakOnActivity(loginData.id); } catch(_) {}
+      try { if (typeof getUserProfile === 'function') (async () => { const p = await getUserProfile({ userId: loginData.id }); if (p?.success) setProfile(p.data); })(); } catch(_) {}
     }
   };
 
@@ -1789,17 +1793,21 @@ const styles = StyleSheet.create({
     fontSize: 32,
   },
   storyOverlay: {
-    padding: 12,
+    padding: 14,
+    alignItems: 'center',
   },
   storyAuthor: {
     color: '#4a90e2',
     fontWeight: 'bold',
     fontSize: 14,
     marginBottom: 4,
+    textAlign: 'center',
   },
   storyPreview: {
-    color: '#ccc',
-    fontSize: 12,
+    color: '#e6eefc',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 
   // Leaderboard Styles
@@ -2506,10 +2514,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   whatsappMessageArea: {
-    flexGrow: 1,
+    flex: 1,
     paddingHorizontal: 12,
     marginBottom: 8,
-    maxHeight: 500,
   },
   whatsappMessage: {
     maxWidth: '80%',
@@ -2767,11 +2774,12 @@ const styles = StyleSheet.create({
   storyViewerBox: {
   width: '100%',
   maxWidth: 640,
-    backgroundColor: '#1f2535',
-    borderRadius: 24,
+    backgroundColor: '#0f1824',
+    borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#32415a',
+    borderColor: '#2f3f54',
+    paddingBottom: 12,
   },
   storyViewerImage: {
     width: '100%',
@@ -2782,8 +2790,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 18,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
   storyViewerAuthor: {
     color: '#4a90e2',
@@ -2809,8 +2818,9 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   storyViewerText: {
-    color: '#e0e6f2',
+    color: '#dfe9fb',
     fontSize: 15,
+    lineHeight: 20,
     lineHeight: 22,
   },
 });

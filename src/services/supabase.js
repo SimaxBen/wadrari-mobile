@@ -501,6 +501,24 @@ export const getGroups = async () => {
 export const completeQuest = async ({ userId, questId, reward = 0 }) => {
   try {
     if (!userId || !questId) throw new Error('userId and questId required');
+    // Fetch quest metadata to enforce per-day or one-time rules
+    let quest = null;
+    try {
+      const { data: qdata, error: qerr } = await supabase.from('quests').select('id, quest_type, trophy_reward, max_completions_per_day, target').eq('id', questId).single();
+      if (!qerr) quest = qdata;
+    } catch(_) {}
+    const questType = quest?.quest_type || null;
+    const maxPerDay = quest?.max_completions_per_day || null;
+    // Prevent one_time quests from being completed more than once globally by this user
+    if (questType === 'one_time' || questType === 'lifetime') {
+      try {
+        const { data: tot, error: totErr } = await supabase.from('user_quest_completions').select('id, completion_count').eq('user_id', userId).eq('quest_id', questId);
+        const totalCount = (tot || []).reduce((s, r) => s + (r.completion_count || 0), 0);
+        if (totalCount > 0) {
+          return { success: true, skipped: true };
+        }
+      } catch(_) {}
+    }
     // Update trophies on users (RLS allows public update per policies)
     const { data: user, error: userError } = await supabase
       .from('users')
@@ -553,6 +571,10 @@ export const completeQuest = async ({ userId, questId, reward = 0 }) => {
         .eq('date', todayDate)
         .maybeSingle();
       if (dailyFetchErr) throw dailyFetchErr;
+      // enforce max per day if configured
+      if (maxPerDay != null && existingDaily?.completion_count >= maxPerDay) {
+        return { success: true, skipped: true };
+      }
       if (existingDaily?.id) {
         await supabase
           .from('user_quest_completions')
