@@ -230,6 +230,13 @@ export const subscribeToMessages = (callback) => {
           created_at: row.created_at,
           profiles: { username }
         });
+        try {
+          if (globalThis?.__currentUserId && row.sender_id === globalThis.__currentUserId) {
+            const from = username || 'Someone';
+            const { notifyNewMessage } = require('../services/notifications');
+            await notifyNewMessage(from, row.content);
+          }
+        } catch (_) {}
       })
       .subscribe();
     return () => {
@@ -259,6 +266,7 @@ export const getStories = async ({ limit = 20 } = {}) => {
     } catch {}
     return (data || []).map(s => ({
       id: s.id,
+      user_id: s.user_id,
       content: s.content,
       author: nameMap[s.user_id] || 'Unknown',
       media_url: s.media_url,
@@ -434,7 +442,7 @@ export const uploadImage = async ({ bucket, fileUri, base64 = null, mimeType = '
     let uploadError = null; let data = null; let attemptCount = 0;
     while (attemptCount < 2) {
       attemptCount++;
-      const resp = await supabase.storage.from(bucket).upload(filename, blobInfo.blob, { contentType: mimeType || 'image/jpeg', upsert: false });
+      const resp = await supabase.storage.from(bucket).upload(filename, blobInfo.blob, { contentType: mimeType || 'image/jpeg', upsert: true });
       if (!resp.error) { data = resp.data; uploadError = null; break; }
       uploadError = resp.error;
       if (!/timeout|network|503|504|Failed to fetch/i.test(String(uploadError.message||uploadError))) break; // only retry transient
@@ -498,6 +506,31 @@ export const getGroups = async () => {
 export const completeQuest = async ({ userId, questId, reward = 0 }) => {
   try {
     if (!userId || !questId) throw new Error('userId and questId required');
+    // 1) Récupérer la quest pour connaître son type/limites
+   const { data: quest } = await supabase
+     .from('quests')
+     .select('quest_type, max_completions_per_day, trophy_reward')
+     .eq('id', questId)
+     .maybeSingle();
+   const qType = quest?.quest_type || 'daily';
+   const maxPerDay = quest?.max_completions_per_day ?? 1;
+   const todayDate = new Date().toISOString().slice(0,10);
+
+   // 2) Vérifier combien de fois déjà complétée aujourd’hui
+   const { data: existingDaily } = await supabase
+     .from('user_quest_completions')
+     .select('id, completion_count')
+     .eq('user_id', userId)
+     .eq('quest_id', questId)
+     .eq('date', todayDate)
+     .maybeSingle();
+   const already = existingDaily?.completion_count || 0;
+
+   // 3) Bloquer l’award si limite atteinte (one_time/daily utilisent 1 par défaut)
+   const limit = (qType === 'repeatable') ? (maxPerDay || 9999 ) : (maxPerDay || 1);
+   if (already >= limit) {
+     return { success: true, skipped: true };
+   }
     // Update trophies on users (RLS allows public update per policies)
     const { data: user, error: userError } = await supabase
       .from('users')

@@ -32,7 +32,8 @@ import {
   updateChat,
   updateChatImage,
   getUserQuestDailyCompletions,
-  getUserQuestTotalCompletions
+  getUserQuestTotalCompletions,
+  updateStreakOnActivity
 } from './src/services/supabase';
 
 // Simple Error Boundary (prevent full crash)
@@ -217,11 +218,16 @@ const MainScreen = ({ userData, onLogout }) => {
         throw new Error('No image selected');
       }
       
-      let upload = await uploadImage({ bucket, fileUri, pathPrefix });
-      if (!upload?.success && base64) {
+      let upload = null;
+      if (base64) {
         upload = await uploadImage({ bucket, base64, mimeType, pathPrefix });
+        if (!upload?.success && fileUri) {
+          upload = await uploadImage({ bucket, fileUri, pathPrefix });
+        }
+      } else {
+        upload = await uploadImage({ bucket, fileUri, pathPrefix });
       }
-      
+
       console.log(`${bucket} upload response:`, upload);
       
       if (!upload?.success) {
@@ -338,7 +344,8 @@ const MainScreen = ({ userData, onLogout }) => {
     (async () => {
       for (const q of quests) {
         console.log('Daily quest progress:', q);
-        if (q.progress >= q.target && !autoCompleted.current.has(q.id)) {
+        const isAutoDaily = (q.id === 'daily_msg_10' || q.id === 'daily_story_3');
+        if (isAutoDaily && q.progress >= q.target && !autoCompleted.current.has(q.id)) {
           const res = await completeQuest({ userId: userData?.id, questId: q.id, reward: q.reward });
           console.log('AutoCompleteQuest response:', res);
           if (res?.success) {
@@ -400,6 +407,7 @@ const MainScreen = ({ userData, onLogout }) => {
       console.log('SendMessage response:', res);
       if (!res?.success || !res?.data) {
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+        try { await updateStreakOnActivity(userData?.id); } catch {}
       } else {
         setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? res.data : m)));
       }
@@ -517,6 +525,7 @@ const MainScreen = ({ userData, onLogout }) => {
   const sendComment = async (storyId) => {
     const text = (newCommentText || '').trim();
     if (!text || !userData?.id || !storyId) return;
+    setCommentSending(true);
     const res = await addStoryComment({ storyId, userId: userData.id, content: text });
     if (res.success) {
       // Notify story owner if not self
@@ -528,15 +537,17 @@ const MainScreen = ({ userData, onLogout }) => {
       setStoryComments((prev) => ({ ...prev, [storyId]: [...(prev[storyId] || []), enriched] }));
       setNewCommentText('');
     }
+    setCommentSending(false);
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
-  <ScrollView style={[styles.mainContainer, { marginBottom: page === 'Chat' ? 130 : 70 }]} contentContainerStyle={{ paddingBottom:140 }}>
+  
         {/* Page header where relevant */}
 
         {page === 'Chat' && (
+          <ScrollView style={[styles.mainContainer, { marginBottom: 70 }]} contentContainerStyle={{ paddingBottom:140 }}>
           <View style={styles.section}>
             {!activeChat ? (
               <View>
@@ -586,6 +597,7 @@ const MainScreen = ({ userData, onLogout }) => {
                   ))}
                 </View>
               </View>
+          
             ) : (
               <View style={styles.whatsappChatView}>
                 {/* WhatsApp-style chat header */}
@@ -632,6 +644,7 @@ const MainScreen = ({ userData, onLogout }) => {
               </View>
             )}
           </View>
+          </ScrollView>
         )}
 
         {page === 'Stories' && (
@@ -987,7 +1000,7 @@ const MainScreen = ({ userData, onLogout }) => {
             </View>
           </View>
         )}
-  </ScrollView>
+  
   
       {/* Fixed chat input above footer - only on Chat page */}
       {page === 'Chat' && activeChat && (
@@ -1004,7 +1017,6 @@ const MainScreen = ({ userData, onLogout }) => {
             style={styles.whatsappSendButton} 
             onPress={async () => { 
               await handleSend(); 
-              await notifyNewMessage(userData?.username, newMessage); 
             }}
           >
             <Text style={styles.whatsappSendText}>→</Text>
@@ -1056,6 +1068,7 @@ const MainScreen = ({ userData, onLogout }) => {
                       if (!questDetail?.id) return;
                       const res = await completeQuest({ userId: userData?.id, questId: questDetail.id, reward });
                       if (res?.success) {
+                        try { autoCompleted?.current?.add(questDetail.id); } catch (_) {}
                         setQuests(prev => {
                           const exists = questDetail?.id ? prev.find(p => p.id === questDetail.id) : null;
                           if (exists) {
@@ -1475,6 +1488,7 @@ const App = () => {
   const handleLogin = (loginData) => {
     if (loginData && typeof loginData === 'object') {
       setUserData(loginData);
+      try { globalThis.__currentUserId = loginData.id; } catch {}
   // persist
   try { SecureStore.setItemAsync('user', JSON.stringify(loginData)); } catch {}
     }
