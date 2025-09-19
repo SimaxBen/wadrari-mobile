@@ -77,6 +77,9 @@ export const loginWithUsername = async (username, password) => {
       .single();
     if (error || !user) throw new Error('Invalid username or password');
 
+    // Set currentUserId globally after login
+    globalThis.__currentUserId = user.id;
+
     // Silently update last activity - don't fail if this fails
     try {
       await supabase
@@ -191,6 +194,9 @@ export const sendMessage = async ({ userId, content, chatId = null }) => {
         .eq('id', userId);
     } catch (_) {}
 
+    // Update streak after successful message send
+    try { await updateStreakOnActivity(userId); } catch (_) {}
+
     const normalized = {
       id: data.id,
       message: data.content,
@@ -221,6 +227,8 @@ export const subscribeToMessages = (callback) => {
             .single();
           username = user?.username || null;
         } catch (_) {}
+        // Filter notifications to exclude self-triggered ones
+        if (payload.new.sender_id === globalThis.__currentUserId) return;
         callback?.({
           id: row.id,
           message: row.content,
@@ -450,6 +458,7 @@ export const uploadImage = async ({ bucket, fileUri, base64 = null, mimeType = '
     if (/Fetch failed|Network request failed/i.test(msg)) msg = 'Network error contacting storage (check connection/RLS)';
     if (/duplicate|already exists/i.test(msg)) msg = 'File already exists (try again)';
     if (/bucket/i.test(msg) && /not exist|missing/i.test(msg)) msg = 'Bucket missing or misnamed';
+    console.error('Upload error:', msg, e);
     return { success: false, error: msg, code };
   }
 };
@@ -904,5 +913,22 @@ export const getUserProfile = async ({ userId }) => {
     return { success: true, data };
   } catch (e) {
     return { success: false, error: e.message };
+  }
+};
+
+// Ensure all buckets exist and are public
+export const ensureBucketsExist = async () => {
+  const requiredBuckets = ['story-images', 'group-images', 'profile-avatars', 'quest-images'];
+  try {
+    const { data: buckets, error } = await supabase.storage.listBuckets();
+    if (error) throw error;
+    const existingBuckets = buckets.map((b) => b.name);
+    for (const bucket of requiredBuckets) {
+      if (!existingBuckets.includes(bucket)) {
+        await supabase.storage.createBucket(bucket, { public: true });
+      }
+    }
+  } catch (e) {
+    console.error('Bucket verification/creation failed:', e);
   }
 };
