@@ -212,6 +212,8 @@ export const subscribeToMessages = (callback) => {
       .channel('public:messages')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
         const row = payload.new;
+        // ignore self-triggered messages
+        try { if (typeof globalThis !== 'undefined' && globalThis.__currentUserId && row.sender_id === globalThis.__currentUserId) return; } catch(_) {}
         let username = null;
         try {
           const { data: user } = await supabase
@@ -221,7 +223,7 @@ export const subscribeToMessages = (callback) => {
             .single();
           username = user?.username || null;
         } catch (_) {}
-        callback?.({
+        const messageObj = {
           id: row.id,
           message: row.content,
           user_id: row.sender_id,
@@ -229,7 +231,8 @@ export const subscribeToMessages = (callback) => {
           username,
           created_at: row.created_at,
           profiles: { username }
-        });
+        };
+        callback?.(messageObj);
       })
       .subscribe();
     return () => {

@@ -1004,7 +1004,7 @@ const MainScreen = ({ userData, onLogout }) => {
             style={styles.whatsappSendButton} 
             onPress={async () => { 
               await handleSend(); 
-              await notifyNewMessage(userData?.username, newMessage); 
+              // don't call notify locally; realtime subscriber will notify other clients
             }}
           >
             <Text style={styles.whatsappSendText}>→</Text>
@@ -1145,10 +1145,10 @@ const MainScreen = ({ userData, onLogout }) => {
                     }
                     const res = await addStory({ userId:userData?.id, content:storyText.trim(), mediaUrl });
                     if (res?.success && res.data) {
-                      setStories(prev => [{ ...res.data, author: userData?.username }, ...prev]);
+                      setStories(prev => [{ ...res.data, author: userData?.username, user_id: userData?.id }, ...prev]);
                       setShowStoryCreateModal(false);
                       setStoryText(''); setStoryImageUri(''); setStoryImageBase64(null);
-                      notifyStoryPosted(userData?.username||'Someone');
+                      // realtime subscriber will notify other clients; do not notify locally
                     } else { Alert.alert('Story', res?.error||'Failed'); }
                   } catch(e){ Alert.alert('Story', e.message); } finally { setPublishingStory(false); }
                 }}>
@@ -1453,8 +1453,10 @@ const App = () => {
   const handleLogin = (loginData) => {
     if (loginData && typeof loginData === 'object') {
       setUserData(loginData);
-  // persist
-  try { SecureStore.setItemAsync('user', JSON.stringify(loginData)); } catch {}
+      // persist
+      try { SecureStore.setItemAsync('user', JSON.stringify(loginData)); } catch {}
+      // expose current user id globally so realtime subscribers can filter self notifications
+      try { globalThis.__currentUserId = loginData.id; } catch {}
     }
   };
 
