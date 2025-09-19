@@ -211,6 +211,8 @@ const MainScreen = ({ userData, onLogout }) => {
   const [questDetail, setQuestDetail] = useState(null); // selected quest for detail modal
   const [groupEdit, setGroupEdit] = useState({ visible:false, name:'', imageUri:'', imageBase64:null });
   const [sendingLike, setSendingLike] = useState(false); // Prevent duplicate likes
+  const sendingLikes = useRef(new Set());
+  const sendingComments = useRef(new Set());
 
   // Standardized image upload function using group image logic
   const handleImageUpload = async ({ bucket, fileUri, base64, pathPrefix, mimeType = 'image/jpeg' }) => {
@@ -405,16 +407,24 @@ const MainScreen = ({ userData, onLogout }) => {
     sendMessage({ userId: userData?.id, content: text, chatId: activeChat?.id || null })
       .then((res) => {
         console.log('SendMessage response:', res);
-        if (!res?.success || !res?.data) {
-          setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-        } else {
-          setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? res.data : m)));
+        if (res?.success) {
+          if (!res?.data) {
+            setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+          } else {
+            setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? res.data : m)));
+          }
         }
       })
       .catch((e) => {
         console.log('SendMessage error:', e);
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       });
+
+    try {
+      await updateStreakOnActivity(userData?.id);
+    } catch (e) {
+      console.error('Failed to update streak:', e);
+    }
   };
 
   const handleCreateChat = async (imageUrl = null) => {
@@ -526,6 +536,54 @@ const MainScreen = ({ userData, onLogout }) => {
       setNewCommentText('');
     }
     setCommentSending(false);
+  };
+
+  const ChatScreen = () => {
+    const flatListRef = useRef(null);
+
+    const scrollToEnd = () => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    };
+
+    useEffect(() => {
+      scrollToEnd();
+    }, [messages]);
+
+    const handleSendMessage = debounce(async (text) => {
+      if (!text.trim()) return;
+
+      const optimistic = {
+        id: `temp-${Date.now()}`,
+        message: text,
+        user_id: userData?.id,
+        created_at: new Date().toISOString(),
+        profiles: { username: userData?.username }
+      };
+      setMessages((prev) => [...prev, optimistic]);
+
+      try {
+        const res = await sendMessage({ userId: userData?.id, content: text, chatId: activeChat?.id || null });
+        if (res?.success) {
+          setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? res.data : m)));
+        } else {
+          setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+        }
+      } catch (e) {
+        console.error('Failed to send message:', e);
+        setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+      }
+    }, 300);
+
+    return (
+      <FlatList
+        ref={flatListRef}
+        data={messages}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => <MessageItem message={item} />}
+        onContentSizeChange={scrollToEnd}
+        onLayout={scrollToEnd}
+      />
+    );
   };
 
   return (
@@ -1420,6 +1478,7 @@ const MainScreen = ({ userData, onLogout }) => {
                     <Text style={{ color:'#666', fontSize:10, marginTop:4 }}>{new Date(c.created_at).toLocaleString()}</Text>
                   </View>
                 ))}
+
                 {/* Add comment input */}
                 <View style={{ flexDirection:'row', alignItems:'center', marginTop:8, gap:8 }}>
                   <TextInput
@@ -2727,7 +2786,7 @@ const styles = StyleSheet.create({
   // Simplified per user request: no padding, margin, or background design
   width: '100%',
   },
-  pill: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#2a2a4e', marginRight: 8 },
+  pill: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#2a2f45', marginRight: 8 },
   pillActive: { backgroundColor: '#4a90e2' },
   pillText: { color: '#cccccc' },
   pillTextActive: { color: '#ffffff', fontWeight: 'bold' },
