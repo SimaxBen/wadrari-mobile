@@ -80,6 +80,9 @@ export const loginWithUsername = async (username, password) => {
     // Set currentUserId globally after login
     globalThis.__currentUserId = user.id;
 
+    // Set currentUserId globally after login
+    globalThis.__currentUserId = user.id;
+
     // Silently update last activity - don't fail if this fails
     try {
       await supabase
@@ -227,8 +230,6 @@ export const subscribeToMessages = (callback) => {
             .single();
           username = user?.username || null;
         } catch (_) {}
-        // Filter notifications to exclude self-triggered ones
-        if (payload.new.sender_id === globalThis.__currentUserId) return;
         callback?.({
           id: row.id,
           message: row.content,
@@ -241,9 +242,10 @@ export const subscribeToMessages = (callback) => {
       })
       .subscribe();
     return () => {
-      try { supabase.removeChannel(channel); } catch (_) {}
+      supabase.removeChannel(channel);
     };
   } catch (e) {
+    console.error('Error subscribing to messages:', e);
     return () => {};
   }
 };
@@ -267,6 +269,7 @@ export const getStories = async ({ limit = 20 } = {}) => {
     } catch {}
     return (data || []).map(s => ({
       id: s.id,
+      user_id: s.user_id,
       content: s.content,
       author: nameMap[s.user_id] || 'Unknown',
       media_url: s.media_url,
@@ -390,67 +393,62 @@ export const getMessagesByChat = async ({ chatId, limit = 100 }) => {
 };
 
 // ==================== Storage and Stories ====================
+export const ensureBucketsExist = async () => {
+  const requiredBuckets = ['story-images', 'group-images', 'profile-avatars', 'quest-images'];
+  try {
+    const { data: buckets, error } = await supabase.storage.listBuckets();
+    if (error) throw error;
+
+    const existingBuckets = buckets.map((b) => b.name);
+    for (const bucket of requiredBuckets) {
+      if (!existingBuckets.includes(bucket)) {
+        await supabase.storage.createBucket(bucket, { public: true });
+      }
+    }
+  } catch (e) {
+    console.error('Bucket verification/creation failed:', e);
+  }
+};
+
 export const uploadImage = async ({ bucket, fileUri, base64 = null, mimeType = 'image/jpeg', pathPrefix = '' }) => {
   const attempt = async (sourceType) => {
     let blob;
     let detectedExt = 'jpg';
     if (sourceType === 'base64') {
-      const dataUrl = `data:${mimeType};base64,${base64}`;
-      const res = await fetch(dataUrl);
-      blob = await res.blob();
-      detectedExt = (mimeType && mimeType.split('/')[1]) || 'jpg';
+      const byteCharacters = atob(base64);
+      const byteNumbers = new Array(byteCharacters.length).fill(0).map((_, i) => byteCharacters.charCodeAt(i));
+      const byteArray = new Uint8Array(byteNumbers);
+      blob = new Blob([byteArray], { type: mimeType });
     } else {
-      const res = await fetch(fileUri);
-      blob = await res.blob();
-      // prefer blob.type to infer extension
-      const t = blob.type || mimeType;
-      if (t && t.includes('/')) detectedExt = t.split('/')[1];
-      if (!mimeType) mimeType = t || 'image/jpeg';
+      const response = await fetch(fileUri);
+      blob = await response.blob();
+      detectedExt = fileUri.split('.').pop();
     }
-    return { blob: blob, ext: detectedExt || 'jpg' };
+    return { blob, ext: detectedExt || 'jpg' };
   };
+
   try {
-    if (!bucket || (!fileUri && !base64)) throw new Error('bucket and file source required');
-    if (!pathPrefix) {
-      // ensure a prefix so we avoid root clutter, helps duplicate filename issues (cause 7)
-      pathPrefix = 'uploads';
-    }
-    // Normalize path prefix
-    let safePrefix = pathPrefix || '';
-    if (safePrefix && !safePrefix.endsWith('/')) safePrefix += '/';
+    if (!bucket || (!fileUri && !base64)) throw new Error('Missing bucket or file data');
 
     let blobInfo = null;
-    let modeTried = [];
     if (fileUri) {
-      try {
-        blobInfo = await attempt('file');
-        modeTried.push('file');
-      } catch (e) {
-        // fallback to base64 if available
-      }
+      blobInfo = await attempt('fileUri');
     }
     if (!blobInfo && base64) {
-      try {
-        blobInfo = await attempt('base64');
-        modeTried.push('base64');
-      } catch (e) {}
+      blobInfo = await attempt('base64');
     }
-    if (!blobInfo) throw new Error('Unable to prepare image data');
+    if (!blobInfo) throw new Error('Failed to process file data');
 
-    const filename = `${safePrefix}${Date.now()}-${Math.random().toString(36).slice(2)}.${blobInfo.ext}`;
-    // attempt upload with one retry on transient errors (network  fetch / 503 / 504)
-    let uploadError = null; let data = null; let attemptCount = 0;
-    while (attemptCount < 2) {
-      attemptCount++;
-      const resp = await supabase.storage.from(bucket).upload(filename, blobInfo.blob, { contentType: mimeType || 'image/jpeg', upsert: false });
-      if (!resp.error) { data = resp.data; uploadError = null; break; }
-      uploadError = resp.error;
-      if (!/timeout|network|503|504|Failed to fetch/i.test(String(uploadError.message||uploadError))) break; // only retry transient
-      await new Promise(r=> setTimeout(r, 400));
-    }
-    if (uploadError) throw uploadError;
-    const { data: pub } = supabase.storage.from(bucket).getPublicUrl(data.path);
-    return { success: true, url: pub.publicUrl, mode: modeTried[0] };
+    const filename = `${pathPrefix}${Date.now()}-${Math.random().toString(36).slice(2)}.${blobInfo.ext}`;
+    const { data, error } = await supabase.storage.from(bucket).upload(filename, blobInfo.blob, {
+      contentType: mimeType,
+      upsert: true,
+    });
+
+    if (error) throw error;
+
+    const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(data.path);
+    return { success: true, url: publicUrlData.publicUrl };
   } catch (e) {
     // classify common issues for clearer UI messages
     let code = e.status || null;
@@ -458,7 +456,6 @@ export const uploadImage = async ({ bucket, fileUri, base64 = null, mimeType = '
     if (/Fetch failed|Network request failed/i.test(msg)) msg = 'Network error contacting storage (check connection/RLS)';
     if (/duplicate|already exists/i.test(msg)) msg = 'File already exists (try again)';
     if (/bucket/i.test(msg) && /not exist|missing/i.test(msg)) msg = 'Bucket missing or misnamed';
-    console.error('Upload error:', msg, e);
     return { success: false, error: msg, code };
   }
 };
@@ -506,162 +503,78 @@ export const getGroups = async () => {
 // ==================== Quest completion ====================
 export const completeQuest = async ({ userId, questId, reward = 0 }) => {
   try {
-    if (!userId || !questId) throw new Error('userId and questId required');
-    // Update trophies on users (RLS allows public update per policies)
-    const { data: user, error: userError } = await supabase
+    if (!userId || !questId) throw new Error('Missing userId or questId');
+
+    // Fetch quest details
+    const { data: quest } = await supabase
+      .from('quests')
+      .select('quest_type, max_completions_per_day, trophy_reward')
+      .eq('id', questId)
+      .maybeSingle();
+
+    const qType = quest?.quest_type || 'daily';
+    const maxPerDay = quest?.max_completions_per_day ?? 1;
+    const todayDate = new Date().toISOString().slice(0, 10);
+
+    // Check user completions for today
+    const { data: existingDaily } = await supabase
+      .from('user_quest_completions')
+      .select('id, completion_count')
+      .eq('user_id', userId)
+      .eq('quest_id', questId)
+      .eq('date', todayDate)
+      .maybeSingle();
+
+    const already = existingDaily?.completion_count || 0;
+    const limit = qType === 'repeatable' ? maxPerDay : 1;
+
+    if (already >= limit) {
+      return { success: true, skipped: true };
+    }
+
+    // Increment completion count
+    const newCount = already + 1;
+    await supabase
+      .from('user_quest_completions')
+      .upsert({
+        user_id: userId,
+        quest_id: questId,
+        date: todayDate,
+        completion_count: newCount,
+      });
+
+    // Award trophies
+    const { data: user } = await supabase
       .from('users')
       .select('trophies')
       .eq('id', userId)
       .single();
-    console.log('completeQuest: user fetch', { user, userError });
-    if (userError) throw userError;
-    const newTrophies = (user?.trophies ?? 0) + (reward || 0);
-    const { data: updateData, error: updateError } = await supabase
+
+    const newTrophies = (user?.trophies || 0) + reward;
+    await supabase
       .from('users')
-      .update({ trophies: newTrophies, updated_at: new Date().toISOString() })
+      .update({ trophies: newTrophies })
       .eq('id', userId);
-    console.log('completeQuest: user update', { updateData, updateError });
-    if (updateError) throw updateError;
-
-    // Best-effort daily_activities bookkeeping (RLS permissive ALL)
-    const today = new Date();
-    const date = today.toISOString().slice(0, 10);
-    try {
-      const { data: existing, error: dailyError } = await supabase
-        .from('daily_activities')
-        .select('id, base_trophies_earned, bonus_trophies_earned')
-        .eq('user_id', userId)
-        .eq('activity_date', date)
-        .maybeSingle();
-      console.log('completeQuest: daily_activities fetch', { existing, dailyError });
-      if (existing?.id) {
-        const { data: dailyUpdate, error: dailyUpdateError } = await supabase
-          .from('daily_activities')
-          .update({ base_trophies_earned: (existing.base_trophies_earned ?? 0) + (reward || 0), updated_at: new Date().toISOString() })
-          .eq('id', existing.id);
-        console.log('completeQuest: daily_activities update', { dailyUpdate, dailyUpdateError });
-      } else {
-        const { data: dailyInsert, error: dailyInsertError } = await supabase
-          .from('daily_activities')
-          .insert([{ user_id: userId, activity_date: date, base_trophies_earned: reward || 0, created_at: new Date().toISOString() }]);
-        console.log('completeQuest: daily_activities insert', { dailyInsert, dailyInsertError });
-      }
-    } catch (e) { console.log('completeQuest: daily_activities error', e); }
-
-    // Record / increment daily completion
-    try {
-      const todayDate = new Date().toISOString().slice(0,10);
-      const { data: existingDaily, error: dailyFetchErr } = await supabase
-        .from('user_quest_completions')
-        .select('id, completion_count')
-        .eq('user_id', userId)
-        .eq('quest_id', questId)
-        .eq('date', todayDate)
-        .maybeSingle();
-      if (dailyFetchErr) throw dailyFetchErr;
-      if (existingDaily?.id) {
-        await supabase
-          .from('user_quest_completions')
-          .update({ completion_count: (existingDaily.completion_count || 0) + 1, trophies_earned: (reward||0), completed_at: new Date().toISOString() })
-          .eq('id', existingDaily.id);
-      } else {
-        await supabase
-          .from('user_quest_completions')
-          .insert([{ user_id: userId, quest_id: questId, completion_count: 1, trophies_earned: (reward||0), date: todayDate, completed_at: new Date().toISOString() }]);
-      }
-    } catch (e) { console.log('daily quest completion log failed', e.message); }
 
     return { success: true };
   } catch (e) {
-    console.log('completeQuest error:', e);
-    return { success: false, error: e.message };
-  }
-};
-
-export const getUserQuestDailyCompletions = async ({ userId }) => {
-  try {
-    if (!userId) return [];
-    const todayDate = new Date().toISOString().slice(0,10);
-    const { data, error } = await supabase
-      .from('user_quest_completions')
-      .select('quest_id, completion_count, trophies_earned')
-      .eq('user_id', userId)
-      .eq('date', todayDate);
-    if (error) throw error;
-    return data || [];
-  } catch (e) {
-    return [];
-  }
-};
-
-export const getUserQuestTotalCompletions = async ({ userId }) => {
-  try {
-    if (!userId) return [];
-    const { data, error } = await supabase
-      .from('user_quest_completions')
-      .select('quest_id, completion_count')
-      .eq('user_id', userId);
-    if (error) throw error;
-    // Aggregate total per quest
-    const totals = {};
-    (data || []).forEach(c => {
-      totals[c.quest_id] = (totals[c.quest_id] || 0) + (c.completion_count || 0);
-    });
-    return Object.entries(totals).map(([quest_id, total]) => ({ quest_id, total }));
-  } catch (e) {
-    return [];
-  }
-};
-
-// ==================== Quests (admin create) ====================
-export const getAllQuests = async ({ onlyActive = true } = {}) => {
-  try {
-    let q = supabase
-      .from('quests')
-      .select('id, name, description, image_url, trophy_reward, quest_type, is_active, created_at, max_completions_per_day')
-      .order('created_at', { ascending: false });
-    if (onlyActive) q = q.eq('is_active', true);
-    const { data, error } = await q;
-    if (error) throw error;
-    return data || [];
-  } catch (e) {
-    return [];
-  }
-};
-
-export const createQuest = async ({ name, description, trophy_reward, quest_type, image_url = null, max_completions_per_day = null, category_id = null, created_by = null }) => {
-  try {
-    if (!name || !trophy_reward || !quest_type) throw new Error('Missing fields');
-    const payload = {
-      name,
-      description: description || null,
-      image_url,
-      trophy_reward: Number(trophy_reward) || 0,
-      quest_type,
-      max_completions_per_day,
-      is_active: true,
-      created_by,
-      created_at: new Date().toISOString()
-    };
-    const { data, error } = await supabase
-      .from('quests')
-      .insert([payload])
-      .select('id, name, description, image_url, trophy_reward, quest_type, is_active, created_at')
-      .single();
-    if (error) throw error;
-    return { success: true, data };
-  } catch (e) {
+    console.error('Error completing quest:', e);
     return { success: false, error: e.message };
   }
 };
 
 export const deleteQuest = async ({ questId }) => {
   try {
-    if (!questId) throw new Error('questId required');
-    const { error } = await supabase.from('quests').delete().eq('id', questId);
-    if (error) throw error;
+    if (!questId) throw new Error('Missing questId');
+
+    await supabase
+      .from('quests')
+      .delete()
+      .eq('id', questId);
+
     return { success: true };
   } catch (e) {
+    console.error('Error deleting quest:', e);
     return { success: false, error: e.message };
   }
 };
@@ -849,32 +762,30 @@ export const getUserDailyCounts = async ({ userId }) => {
 
 export const updateStreakOnActivity = async (userId) => {
   try {
-    if (!userId) return;
-    const { data: user } = await supabase
-      .from('users')
-      .select('current_streak, last_activity')
-      .eq('id', userId)
-      .single();
-    const now = new Date();
-    const last = user?.last_activity ? new Date(user.last_activity) : null;
-    let days = user?.current_streak ?? 0;
-    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const startPrev = new Date(startToday);
-    startPrev.setDate(startPrev.getDate() - 1);
-    if (!last) {
-      days = 1;
-    } else if (last >= startToday) {
-      // already active today, keep
-    } else if (last >= startPrev && last < startToday) {
-      days = days + 1;
-    } else {
-      days = 1; // reset
-    }
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: streakData } = await supabase
+      .from('user_streaks')
+      .select('id, last_active_date, streak_count')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (streakData?.last_active_date === today) return;
+
+    const newStreakCount =
+      streakData?.last_active_date === new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+        ? (streakData.streak_count || 0) + 1
+        : 1;
+
     await supabase
-      .from('users')
-      .update({ current_streak: days, last_activity: now.toISOString(), updated_at: now.toISOString() })
-      .eq('id', userId);
-  } catch (_) {}
+      .from('user_streaks')
+      .upsert({
+        user_id: userId,
+        last_active_date: today,
+        streak_count: newStreakCount,
+      });
+  } catch (e) {
+    console.error('Failed to update streak:', e);
+  }
 };
 
 // ==================== Season reset (admin) ====================
